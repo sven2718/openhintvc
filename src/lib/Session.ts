@@ -83,16 +83,6 @@ class Session extends EventEmitter {
       case 'open':
         this.handleOpen(command);
         break;
-
-      case 'list':
-        this.handleList(command);
-        this.emit('list');
-        break;
-
-      case 'connect':
-        this.handleConnect(command);
-        this.emit('connect');
-        break;
     }
   }
 
@@ -100,10 +90,10 @@ class Session extends EventEmitter {
     var fullpath = command.getVariable('real-path');
     var file = command.getVariable('display-name');
     var line = Number(command.getVariable('line'));
-    //var line=10;
+
     L.trace('handleOpen',file,fullpath);
     vscode.workspace.openTextDocument(fullpath).then((textDocument : vscode.TextDocument) => {
-      L.trace('then...');
+      //L.trace('then...');
       if (!textDocument && this.attempts < 3) {
         L.warn("Failed to open the text document, will try again");
 
@@ -133,52 +123,6 @@ class Session extends EventEmitter {
   }
 
 
-  openInEditor() {
-    L.trace('openInEditor');
-/*
-    vscode.workspace.openTextDocument(this.remoteFile.getLocalFilePath()).then((textDocument : vscode.TextDocument) => {
-      if (!textDocument && this.attempts < 3) {
-        L.warn("Failed to open the text document, will try again");
-
-        setTimeout(() => {
-          this.attempts++;
-          this.openInEditor();
-        }, 100);
-        return;
-
-      } else if (!textDocument) {
-        L.error("Could NOT open the file", this.remoteFile.getLocalFilePath());
-        vscode.window.showErrorMessage(`Failed to open file ${this.remoteFile.getRemoteBaseName()}`);
-        return;
-      }
-
-      vscode.window.showTextDocument(textDocument).then((textEditor : vscode.TextEditor) => {
-        this.handleChanges(textDocument);
-        L.info(`Opening ${this.remoteFile.getRemoteBaseName()} from ${this.remoteFile.getHost()}`);
-        vscode.window.setStatusBarMessage(`Opening ${this.remoteFile.getRemoteBaseName()} from ${this.remoteFile.getHost()}`, 2000);
-
-        this.showSelectedLine(textEditor);
-      });
-    });
-    */
-  }
-
-
-  showSelectedLine(textEditor : vscode.TextEditor) {
-    var selection = +(this.command.getVariable('selection'));
-    if (selection) {
-      textEditor.revealRange(new vscode.Range(selection, 0, selection + 1, 1));
-    }
-  }
-
-
-  handleConnect(command : Command) {
-    L.trace('handleConnect', command.getName());
-  }
-
-  handleList(command : Command) {
-    L.trace('handleList', command.getName());
-  }
 
   send(cmd : string) {
     L.trace('send', cmd);
@@ -186,40 +130,6 @@ class Session extends EventEmitter {
     if (this.isOnline()) {
       this.socket.write(cmd + "\n");
     }
-  }
-
-  open(filePath : string) {
-    L.trace('filePath', filePath);
-
-    this.send("open");
-    this.send(`path: ${filePath}`);
-    this.send("");
-  }
-
-  list(dirPath : string) {
-    L.trace('list', dirPath);
-
-    this.send("list");
-    this.send(`path: ${dirPath}`);
-    this.send("");
-  }
-
-  save() {
-    L.trace('save');
-
-  }
-
-  close() {
-    L.trace('close');
-
-    if (this.isOnline()) {
-      this.online = false;
-      this.send("close");
-      this.send("");
-      this.socket.end();
-    }
-
-    this.subscriptions.forEach((disposable : vscode.Disposable) => disposable.dispose());
   }
 
   isOnline() {
