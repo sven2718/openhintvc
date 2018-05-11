@@ -118,7 +118,7 @@ class Session extends EventEmitter {
           return;
         }
   
-        vscode.window.showTextDocument(textDocument).then((textEditor : vscode.TextEditor) => {
+        vscode.window.showTextDocument(textDocument,{preview: false}).then((textEditor : vscode.TextEditor) => {
          
           L.trace('showing something');
   
