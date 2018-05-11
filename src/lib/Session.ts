@@ -95,7 +95,7 @@ class Session extends EventEmitter {
 
     vscode.workspace.findFiles('*\\'+file).then((uri : vscode.Uri[]) => {
     
-      L.trace('got uris',uri);
+      //L.trace('got uris',uri);
       if(!uri[0]) {
         L.trace('using root file',vscode.workspace.rootPath, file);
         uri[0]=vscode.Uri.file(vscode.workspace.rootPath + '\\' + file);
