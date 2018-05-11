@@ -2,7 +2,7 @@
     "name": "openhintvc",
     "displayName": "OpenHintVC",
     "description": "Stars in Shadow debugging helper",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "publisher": "sven2718",
     "license": "MIT",
     "engines": {
