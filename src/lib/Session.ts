@@ -100,8 +100,10 @@ class Session extends EventEmitter {
   handleOpen(command : Command) {
     var fullpath = command.getVariable('real-path');
     var file = command.getVariable('display-name');
+    var line = command.getVariable('line');
     L.trace('handleOpen',file,fullpath);
     vscode.workspace.openTextDocument(fullpath).then((textDocument : vscode.TextDocument) => {
+      L.trace('then...',textDocument);
       if (!textDocument && this.attempts < 3) {
         L.warn("Failed to open the text document, will try again");
 
@@ -116,6 +118,19 @@ class Session extends EventEmitter {
         vscode.window.showErrorMessage(`Failed to open file ${fullpath}`);
         return;
       }
+
+      vscode.window.showTextDocument(textDocument).then((textEditor : vscode.TextEditor) => {
+       
+        L.trace('showing something');
+
+        textEditor.
+
+       // L.info(`Opening ${this.remoteFile.getRemoteBaseName()} from ${this.remoteFile.getHost()}`);
+        //vscode.window.setStatusBarMessage(`Opening ${this.remoteFile.getRemoteBaseName()} from ${this.remoteFile.getHost()}`, 2000);
+
+        //this.showSelectedLine(textEditor);
+      });
+
     });
   }
 
