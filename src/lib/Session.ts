@@ -99,10 +99,11 @@ class Session extends EventEmitter {
   handleOpen(command : Command) {
     var fullpath = command.getVariable('real-path');
     var file = command.getVariable('display-name');
-    var line = command.getVariable('line');
+    var line = Number(command.getVariable('line'));
+    //var line=10;
     L.trace('handleOpen',file,fullpath);
     vscode.workspace.openTextDocument(fullpath).then((textDocument : vscode.TextDocument) => {
-      L.trace('then...',textDocument);
+      L.trace('then...');
       if (!textDocument && this.attempts < 3) {
         L.warn("Failed to open the text document, will try again");
 
@@ -122,12 +123,10 @@ class Session extends EventEmitter {
        
         L.trace('showing something');
 
-        textEditor.
+        textEditor.selections=[new vscode.Selection(line-1,0,line-1,0)];
+        L.trace('set to',line);
+        textEditor.revealRange(new vscode.Range(line-1, 0, line, 1),vscode.TextEditorRevealType.InCenterIfOutsideViewport);
 
-       // L.info(`Opening ${this.remoteFile.getRemoteBaseName()} from ${this.remoteFile.getHost()}`);
-        //vscode.window.setStatusBarMessage(`Opening ${this.remoteFile.getRemoteBaseName()} from ${this.remoteFile.getHost()}`, 2000);
-
-        //this.showSelectedLine(textEditor);
       });
 
     });
@@ -164,32 +163,6 @@ class Session extends EventEmitter {
     */
   }
 
-  handleChanges(textDocument : vscode.TextDocument) {
-    L.trace('handleChanges', textDocument.fileName);
-
-    this.subscriptions.push(vscode.workspace.onDidSaveTextDocument((savedTextDocument : vscode.TextDocument) => {
-      if (savedTextDocument == textDocument) {
-        this.save();
-      }
-    }));
-
-    this.subscriptions.push(vscode.workspace.onDidCloseTextDocument((closedTextDocument : vscode.TextDocument) => {
-      if (closedTextDocument === textDocument) {
-        this.closeTimeout  && clearTimeout(this.closeTimeout);
-        // If you change the textDocument language, it will close and re-open the same textDocument, so we add
-        // a timeout to make sure it is really being closed before close the socket.
-        this.closeTimeout = setTimeout(() => {
-          this.close();
-        }, 2);
-      }
-    }));
-
-    this.subscriptions.push(vscode.workspace.onDidOpenTextDocument((openedTextDocument : vscode.TextDocument) => {
-      if (openedTextDocument === textDocument) {
-        this.closeTimeout  && clearTimeout(this.closeTimeout);
-      }
-    }));
-  }
 
   showSelectedLine(textEditor : vscode.TextEditor) {
     var selection = +(this.command.getVariable('selection'));

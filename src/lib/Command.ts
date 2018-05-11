@@ -1,5 +1,4 @@
 import Logger from '../utils/Logger';
-import RemoteFile from './RemoteFile';
 
 const L = Logger.getLogger('Command');
 
