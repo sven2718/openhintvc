@@ -3,7 +3,7 @@
     "displayName": "OpenHintVC",
     "description": "Stars in Shadow debugging helper",
     "version": "0.0.1",
-    "publisher": "Sven",
+    "publisher": "sven2718",
     "license": "MIT",
     "engines": {
         "vscode": "^1.23.0"
