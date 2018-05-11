@@ -97,7 +97,7 @@ class Server extends EventEmitter {
 
     this.emit('error', e);
 
-    if (e.code == 'EADDRINUSE') {
+    if (e.code === 'EADDRINUSE') {
       if (this.dontShowPortAlreadyInUseError) {
         return;
       } else {

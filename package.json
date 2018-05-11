@@ -24,12 +24,12 @@
             "properties": {
                 "remote.port": {
                     "type": "number",
-                    "default": 67696,
+                    "default": 62696,
                     "description": "Port number to use for connection."
                 },
                 "remote.onstartup": {
                     "type": "boolean",
-                    "default": false,
+                    "default": true,
                     "description": "Launch the server on start up."
                 },
                 "remote.host": {

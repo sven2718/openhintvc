@@ -11,8 +11,8 @@ class Session extends EventEmitter {
   command : Command;
   socket : net.Socket;
   online : boolean;
+  ready: boolean;
   subscriptions : Array<vscode.Disposable> = [];
-  remoteFile : RemoteFile;
   attempts : number = 0;
   closeTimeout : NodeJS.Timer;
 
@@ -43,7 +43,7 @@ class Session extends EventEmitter {
   parseChunk(buffer : any) {
     L.trace('parseChunk', buffer);
 
-    if (this.command && this.remoteFile.isReady()) {
+    if (this.command && this.ready) {
       return;
     }
 
@@ -52,43 +52,29 @@ class Session extends EventEmitter {
 
     if (!this.command) {
       this.command = new Command(lines.shift());
-      this.remoteFile = new RemoteFile();
     }
 
-    if (this.remoteFile.isEmpty()) {
-      while (lines.length) {
-        var line = lines.shift().trim();
+    while (lines.length) {
+      var line = lines.shift().trim();
 
-        if (!line) {
-          break;
-        }
-
-        var s = line.split(':');
-        var name = s.shift().trim();
-        var value = s.join(":").trim();
-
-        if (name == 'data') {
-          this.remoteFile.setDataSize(parseInt(value, 10));
-          this.remoteFile.setToken(this.command.getVariable('token'));
-          this.remoteFile.setDisplayName(this.command.getVariable('display-name'));
-          this.remoteFile.initialize();
-
-          this.remoteFile.appendData(buffer.slice(buffer.indexOf(line) + Buffer.byteLength(`${line}\n`)));
-          break;
-
-        } else {
-          this.command.addVariable(name, value);
-        }
+      if (!line) {
+        break;
+      }
+      if(line==='.') {
+        this.ready=true; 
+        this.handleCommand(this.command);
+        return;
       }
 
-    } else {
-      this.remoteFile.appendData(buffer);
-    }
 
-    if (this.remoteFile.isReady()) {
-      this.remoteFile.closeSync();
-      this.handleCommand(this.command);
+      var s = line.split(':');
+      var name = s.shift().trim();
+      var value = s.join(":").trim();
+
+      this.command.addVariable(name, value);
+
     }
+ 
   }
 
   handleCommand(command : Command) {
@@ -111,9 +97,32 @@ class Session extends EventEmitter {
     }
   }
 
+  handleOpen(command : Command) {
+    var fullpath = command.getVariable('real-path');
+    var file = command.getVariable('display-name');
+    L.trace('handleOpen',file,fullpath);
+    vscode.workspace.openTextDocument(fullpath).then((textDocument : vscode.TextDocument) => {
+      if (!textDocument && this.attempts < 3) {
+        L.warn("Failed to open the text document, will try again");
+
+        setTimeout(() => {
+          this.attempts++;
+          this.handleOpen(command);
+        }, 100);
+        return;
+
+      } else if (!textDocument) {
+        L.error("Could NOT open the file", file);
+        vscode.window.showErrorMessage(`Failed to open file ${fullpath}`);
+        return;
+      }
+    });
+  }
+
+
   openInEditor() {
     L.trace('openInEditor');
-
+/*
     vscode.workspace.openTextDocument(this.remoteFile.getLocalFilePath()).then((textDocument : vscode.TextDocument) => {
       if (!textDocument && this.attempts < 3) {
         L.warn("Failed to open the text document, will try again");
@@ -138,6 +147,7 @@ class Session extends EventEmitter {
         this.showSelectedLine(textEditor);
       });
     });
+    */
   }
 
   handleChanges(textDocument : vscode.TextDocument) {
@@ -150,7 +160,7 @@ class Session extends EventEmitter {
     }));
 
     this.subscriptions.push(vscode.workspace.onDidCloseTextDocument((closedTextDocument : vscode.TextDocument) => {
-      if (closedTextDocument == textDocument) {
+      if (closedTextDocument === textDocument) {
         this.closeTimeout  && clearTimeout(this.closeTimeout);
         // If you change the textDocument language, it will close and re-open the same textDocument, so we add
         // a timeout to make sure it is really being closed before close the socket.
@@ -161,7 +171,7 @@ class Session extends EventEmitter {
     }));
 
     this.subscriptions.push(vscode.workspace.onDidOpenTextDocument((openedTextDocument : vscode.TextDocument) => {
-      if (openedTextDocument == textDocument) {
+      if (openedTextDocument === textDocument) {
         this.closeTimeout  && clearTimeout(this.closeTimeout);
       }
     }));
@@ -174,10 +184,6 @@ class Session extends EventEmitter {
     }
   }
 
-  handleOpen(command : Command) {
-    L.trace('handleOpen', command.getName());
-    this.openInEditor();
-  }
 
   handleConnect(command : Command) {
     L.trace('handleConnect', command.getName());
@@ -214,21 +220,6 @@ class Session extends EventEmitter {
   save() {
     L.trace('save');
 
-    if (!this.isOnline()) {
-      L.error("NOT online");
-      vscode.window.showErrorMessage(`Error saving ${this.remoteFile.getRemoteBaseName()} to ${this.remoteFile.getHost()}`);
-      return;
-    }
-
-    vscode.window.setStatusBarMessage(`Saving ${this.remoteFile.getRemoteBaseName()} to ${this.remoteFile.getHost()}`, 2000);
-
-    var buffer = this.remoteFile.readFileSync();
-
-    this.send("save");
-    this.send(`token: ${this.remoteFile.getToken()}`);
-    this.send("data: " + buffer.length);
-    this.socket.write(buffer);
-    this.send("");
   }
 
   close() {

@@ -79,7 +79,7 @@ const hasConfigurationChanged = (configuration) => {
 
   L.debug("hasConfigurationChanged?", hasChanged);
   return hasChanged;
-}
+};
 
 const onConfigurationChange = () => {
   L.trace('onConfigurationChange');
