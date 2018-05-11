@@ -91,38 +91,46 @@ class Session extends EventEmitter {
     var file = command.getVariable('display-name');
     var line = Number(command.getVariable('line'));
 
-    L.trace('handleOpen',file,fullpath);
-    vscode.workspace.openTextDocument(fullpath).then((textDocument : vscode.TextDocument) => {
-      //L.trace('then...');
-      if (!textDocument && this.attempts < 3) {
-        L.warn("Failed to open the text document, will try again");
+    L.trace('handleOpen',file,fullpath,line);
 
-        setTimeout(() => {
-          this.attempts++;
-          this.handleOpen(command);
-        }, 100);
-        return;
-
-      } else if (!textDocument) {
-        L.error("Could NOT open the file", file);
-        vscode.window.showErrorMessage(`Failed to open file ${fullpath}`);
-        return;
+    vscode.workspace.findFiles('*\\'+file).then((uri : vscode.Uri[]) => {
+    
+      L.trace('got uris',uri);
+      if(!uri[0]) {
+        L.trace('using root file',vscode.workspace.rootPath, file);
+        uri[0]=vscode.Uri.file(vscode.workspace.rootPath + '\\' + file);
       }
 
-      vscode.window.showTextDocument(textDocument).then((textEditor : vscode.TextEditor) => {
-       
-        L.trace('showing something');
-
-        textEditor.selections=[new vscode.Selection(line-1,0,line-1,0)];
-        L.trace('set to',line);
-        textEditor.revealRange(new vscode.Range(line-1, 0, line, 1),vscode.TextEditorRevealType.InCenterIfOutsideViewport);
-
+      vscode.workspace.openTextDocument(uri[0]).then((textDocument : vscode.TextDocument) => {
+        //L.trace('then...');
+        if (!textDocument && this.attempts < 3) {
+          L.warn("Failed to open the text document, will try again");
+  
+          setTimeout(() => {
+            this.attempts++;
+            this.handleOpen(command);
+          }, 100);
+          return;
+  
+        } else if (!textDocument) {
+          L.error("Could NOT open the file", file);
+          vscode.window.showErrorMessage(`Failed to open file ${fullpath}`);
+          return;
+        }
+  
+        vscode.window.showTextDocument(textDocument).then((textEditor : vscode.TextEditor) => {
+         
+          L.trace('showing something');
+  
+          textEditor.selections=[new vscode.Selection(line-1,0,line-1,0)];
+          L.trace('set to',line);
+          textEditor.revealRange(new vscode.Range(line-1, 0, line, 1),vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+  
+        });
+  
       });
-
     });
   }
-
-
 
   send(cmd : string) {
     L.trace('send', cmd);
