@@ -1,29 +1,106 @@
-'use strict';
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
+import Server from './lib/Server';
+import Logger from './utils/Logger';
+import StatusBarItem from './lib/StatusBarItem';
 
-// this method is called when your extension is activated
-// your extension is activated the very first time the command is executed
-export function activate(context: vscode.ExtensionContext) {
+const L = Logger.getLogger('extension');
 
-    // Use the console to output diagnostic information (console.log) and errors (console.error)
-    // This line of code will only be executed once when your extension is activated
-    console.log('Congratulations, your extension "openhintvc" is now active!');
+var server : Server;
+var changeConfigurationDisposable : vscode.Disposable;
+var port : number;
+var host : string;
+var onStartup : boolean;
+var dontShowPortAlreadyInUseError : boolean;
+var statusBarItem : StatusBarItem;
 
-    // The command has been defined in the package.json file
-    // Now provide the implementation of the command with  registerCommand
-    // The commandId parameter must match the command field in package.json
-    let disposable = vscode.commands.registerCommand('extension.sayHello', () => {
-        // The code you place here will be executed every time your command is executed
+const startServer = () => {
+  L.trace('startServer');
 
-        // Display a message box to the user
-        vscode.window.showInformationMessage('Hello World!');
-    });
+  if (!server) {
+    server = new Server();
+  }
 
-    context.subscriptions.push(disposable);
+  if (!statusBarItem) {
+    statusBarItem = new StatusBarItem();
+  }
+
+  server.setPort(port);
+  server.setHost(host);
+  server.setDontShowPortAlreadyInUseError(dontShowPortAlreadyInUseError);
+  server.start(false);
+
+  statusBarItem.setServer(server);
+};
+
+const stopServer = () => {
+  L.trace('stopServer');
+
+  if (server) {
+    server.stop();
+  }
+};
+
+const initialize = () => {
+  L.trace('initialize');
+
+  var configuration = getConfiguration();
+  onStartup = configuration.onStartup;
+  port = configuration.port;
+  host = configuration.host;
+  dontShowPortAlreadyInUseError = configuration.dontShowPortAlreadyInUseError;
+
+  if (onStartup) {
+    startServer();
+  }
+};
+
+const getConfiguration = () => {
+  L.trace('getConfiguration');
+  var remoteConfig = vscode.workspace.getConfiguration('remote');
+
+  var configuration = {
+    onStartup: remoteConfig.get<boolean>('onstartup'),
+    dontShowPortAlreadyInUseError: remoteConfig.get<boolean>('dontShowPortAlreadyInUseError'),
+    port: remoteConfig.get<number>('port'),
+    host: remoteConfig.get<string>('host')
+  };
+
+  L.debug("getConfiguration", configuration);
+
+  return configuration;
+};
+
+const hasConfigurationChanged = (configuration) => {
+  L.trace('hasConfigurationChanged');
+  var hasChanged = ((configuration.port !== port) ||
+                    (configuration.onStartup !== onStartup) ||
+                    (configuration.host !== host) ||
+                    (configuration.dontShowPortAlreadyInUseError !== dontShowPortAlreadyInUseError));
+
+  L.debug("hasConfigurationChanged?", hasChanged);
+  return hasChanged;
 }
 
-// this method is called when your extension is deactivated
+const onConfigurationChange = () => {
+  L.trace('onConfigurationChange');
+
+  var configuration = getConfiguration();
+
+  if (hasConfigurationChanged(configuration)) {
+    initialize();
+  }
+};
+
+export function activate(context: vscode.ExtensionContext) {
+  initialize();
+
+	context.subscriptions.push(vscode.commands.registerCommand('extension.startServer', startServer));
+  context.subscriptions.push(vscode.commands.registerCommand('extension.stopServer', stopServer));
+
+  changeConfigurationDisposable = vscode.workspace.onDidChangeConfiguration(onConfigurationChange);
+}
+
 export function deactivate() {
+  stopServer();
+  changeConfigurationDisposable.dispose();
 }
