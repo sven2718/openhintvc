@@ -4,6 +4,7 @@
     "description": "Stars in Shadow debugging helper",
     "version": "0.0.2",
     "publisher": "sven2718",
+    "icon": "images/icon.png",
     "license": "MIT",
     "engines": {
         "vscode": "^1.23.0"
