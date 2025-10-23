@@ -65,7 +65,7 @@ class Server extends EventEmitter {
   }
 
   getHost() : string {
-    L.trace('getHost', +(this.host || DEFAULT_HOST));
+    L.trace('getHost', (this.host || DEFAULT_HOST));
     return (this.host || DEFAULT_HOST);
   }
 
@@ -101,11 +101,12 @@ class Server extends EventEmitter {
       if (this.dontShowPortAlreadyInUseError) {
         return;
       } else {
-        return vscode.window.showErrorMessage(`Failed to start server, port ${e.port} already in use`);
+        // Prefer the configured port if error doesn't provide one
+        return vscode.window.showErrorMessage(`Failed to start server, port ${this.getPort()} already in use`);
       }
     }
 
-    vscode.window.showErrorMessage(`Failed to start server, will try again in 10 seconds}`);
+    vscode.window.showErrorMessage(`Failed to start server, will try again in 10 seconds`);
 
     setTimeout(() => {
       this.start(true);
