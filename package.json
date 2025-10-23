@@ -17,7 +17,7 @@
         "url": "https://github.com/sven2718/openhintvc.git"
     },
     "activationEvents": [
-        "*",
+        "onStartupFinished",
         "onCommand:extension.startServer",
         "onCommand:extension.stopServer"
     ],
