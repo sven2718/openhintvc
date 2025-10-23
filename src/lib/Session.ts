@@ -14,7 +14,7 @@ class Session extends EventEmitter {
   ready: boolean;
   subscriptions : Array<vscode.Disposable> = [];
   attempts : number = 0;
-  closeTimeout : NodeJS.Timer;
+  closeTimeout : NodeJS.Timeout;
 
   constructor(socket : net.Socket) {
     super();
