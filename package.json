@@ -5,10 +5,10 @@
     "version": "0.0.32",
     "publisher": "sven2718",
     "icon": "images/icon.png",
-  "license": "MIT",
-  "engines": {
+    "license": "MIT",
+    "engines": {
         "vscode": "^1.74.0"
-  },
+    },
     "categories": [
         "Other"
     ],
@@ -64,17 +64,21 @@
         "vscode:prepublish": "npm run compile",
         "compile": "tsc -p ./",
         "watch": "tsc -w -p ./",
+        "lint": "eslint \"src/**/*.{ts,tsx}\"",
+        "lint:fix": "eslint \"src/**/*.{ts,tsx}\" --fix",
         "test": "echo \"No tests configured\" && exit 0"
     },
     "devDependencies": {
-        "typescript": "^5.6.3",
-        "@types/vscode": "^1.74.0",
-        "@types/fs-extra": "^11.0.4",
+        "@types/mocha": "^10.0.1",
         "@types/node": "^20.11.30",
-        "@types/mocha": "^10.0.1"
+        "@types/vscode": "^1.74.0",
+        "@typescript-eslint/eslint-plugin": "^8.11.0",
+        "@typescript-eslint/parser": "^8.11.0",
+        "eslint": "^9.13.0",
+        "typescript": "^5.6.3",
+        "typescript-eslint": "^8.11.0"
     },
     "dependencies": {
-        "fs-extra": "^11.2.0",
         "log4js": "^6.9.1"
     }
 }
