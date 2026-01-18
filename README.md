@@ -28,3 +28,37 @@ Bundled debugger binaries and their licenses live under `vslua/`.
 
 Adapter sources are vendored under `vslua/src/`. To rebuild `vslua/DebugAdapter.exe` and the required DLLs:
 - `npm run build:debug-adapter`
+
+Build requirements (Windows):
+- MSBuild (Visual Studio / Build Tools)
+- .NET Framework 4.6.2 targeting pack
+- Network access for NuGet restore
+
+## Local build + install (no publishing)
+
+### Option A: Run from source (recommended for development)
+
+1. `npm install`
+2. `npm run build:all`
+3. In VS Code, press `F5` (launches an “Extension Development Host” via `.vscode/launch.json`).
+
+### Option B: Build a `.vsix` and install it
+
+1. `npm install`
+2. `npm run build:all`
+3. `npx @vscode/vsce package`
+4. Install the resulting `openhintvc-<version>.vsix`:
+   - VS Code UI: Extensions view → `...` → `Install from VSIX...`
+   - CLI: `code --install-extension .\openhintvc-<version>.vsix --force`
+
+## Publishing
+
+Publishing requires a VS Code Marketplace publisher (this extension id is `sven2718.openhintvc`) and a Personal Access Token (PAT).
+
+1. Bump version: `npm version patch` (or `minor` / `major`)
+2. `npm ci`
+3. `npm run build:all`
+4. (Recommended) Smoke-test the package: `npx @vscode/vsce package`
+5. Publish:
+   - `npx @vscode/vsce login sven2718`
+   - `npx @vscode/vsce publish`
