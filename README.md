@@ -2,7 +2,7 @@
 
 This extension is a grab-bag of Stars in Shadow development helpers:
 
-- Lua debugger (DAP): bundles devCAT's VSCodeLuaDebug adapter, providing debug type `lua`.
+- Lua debugger (DAP): Node-based adapter (no Mono/.NET), providing debug type `lua`.
 - OpenHint server: allows Stars in Shadow instances to open files/lines in VS Code from in-game UI actions.
 
 ## Debugging (Lua / SiS)
@@ -22,17 +22,7 @@ The OpenHint server starts automatically by default (see settings under `remote.
 
 ## Licenses
 
-Bundled debugger binaries and their licenses live under `vslua/`.
-
-## Building the Lua debug adapter
-
-Adapter sources are vendored under `vslua/src/`. To rebuild `vslua/DebugAdapter.exe` and the required DLLs:
-- `npm run build:debug-adapter`
-
-Build requirements (Windows):
-- MSBuild (Visual Studio / Build Tools)
-- .NET Framework 4.6.2 targeting pack
-- Network access for NuGet restore
+The Lua debug adapter is implemented in TypeScript under `src/debugger/` (built into `out/`).
 
 ## Local build + install (no publishing)
 

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'node:path';
 import Server from './lib/Server';
 import Logger from './utils/Logger';
 import StatusBarItem from './lib/StatusBarItem';
@@ -12,6 +13,20 @@ var host : string;
 var onStartup : boolean;
 var dontShowPortAlreadyInUseError : boolean;
 var statusBarItem : StatusBarItem;
+
+class LuaDebugAdapterDescriptorFactory implements vscode.DebugAdapterDescriptorFactory {
+  constructor(private readonly context: vscode.ExtensionContext) {}
+
+  createDebugAdapterDescriptor(
+    _session: vscode.DebugSession,
+    _executable: vscode.DebugAdapterExecutable | undefined,
+  ): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
+    const adapterPath = this.context.asAbsolutePath(path.join('out', 'debugger', 'luaDebugAdapter.js'));
+    return new vscode.DebugAdapterExecutable(process.execPath, [adapterPath], {
+      cwd: this.context.extensionPath,
+    });
+  }
+}
 
 const startServer = () => {
   L.trace('startServer');
@@ -98,6 +113,10 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(vscode.commands.registerCommand('extension.stopServer', stopServer));
 
   changeConfigurationDisposable = vscode.workspace.onDidChangeConfiguration(onConfigurationChange);
+
+  context.subscriptions.push(
+    vscode.debug.registerDebugAdapterDescriptorFactory('lua', new LuaDebugAdapterDescriptorFactory(context)),
+  );
 }
 
 export function deactivate() {

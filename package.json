@@ -69,13 +69,8 @@
                         "lua"
                     ]
                 },
-                "program": "./vslua/DebugAdapter.exe",
-                "osx": {
-                    "runtime": "mono"
-                },
-                "linux": {
-                    "runtime": "mono"
-                },
+                "program": "./out/debugger/luaDebugAdapter.js",
+                "runtime": "node",
                 "initialConfigurations": [
                     {
                         "name": "console-sis",
@@ -130,19 +125,6 @@
                         "env": {}
                     },
                     {
-                        "name": "launch-gideros",
-                        "type": "lua",
-                        "request": "launch",
-                        "workingDirectory": "${workspaceRoot}",
-                        "giderosPath": "C:/Program Files (x86)/Gideros",
-                        "gprojPath": "${workspaceRoot}/GPROJ.gproj",
-                        "jumpToGiderosErrorPosition": false,
-                        "stopGiderosWhenDebuggerStops": true,
-                        "listenPublicly": false,
-                        "listenPort": 56789,
-                        "encoding": "UTF-8"
-                    },
-                    {
                         "name": "wait",
                         "type": "lua",
                         "request": "attach",
@@ -160,6 +142,7 @@
                             "type",
                             "request",
                             "workingDirectory",
+                            "executable",
                             "listenPublicly",
                             "listenPort"
                         ],
@@ -208,30 +191,10 @@
                                 "description": "Local TCP port to communicate between debug adapter and debuggee",
                                 "default": 56789
                             },
-                            "giderosPath": {
-                                "type": "string",
-                                "description": "Gideros installation directory",
-                                "default": "c:/program files (x86)/gideros"
-                            },
-                            "gprojPath": {
-                                "type": "string",
-                                "description": "Path of .gproj file",
-                                "default": "${workspaceRoot}/GPROJ.gproj"
-                            },
                             "encoding": {
                                 "type": "string",
                                 "description": "Encoding of the debuggee. (Example: 'UTF-8', '949')",
                                 "default": "UTF-8"
-                            },
-                            "jumpToGiderosErrorPosition": {
-                                "type": "boolean",
-                                "description": "Sets whether to jump directly to the source file if it encounters a Gideros error message.",
-                                "default": false
-                            },
-                            "stopGiderosWhenDebuggerStops": {
-                                "type": "boolean",
-                                "description": "Stops Gideros Player when debug adapter stops.",
-                                "default": false
                             }
                         }
                     },
@@ -278,8 +241,7 @@
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
-        "build:debug-adapter": "powershell -NoProfile -ExecutionPolicy Bypass -File vslua/build-debug-adapter.ps1",
-        "build:all": "npm run build:debug-adapter && npm run compile",
+        "build:all": "npm run compile",
         "compile": "tsc -p ./",
         "watch": "tsc -w -p ./",
         "lint": "eslint \"src/**/*.{ts,tsx}\"",
@@ -297,6 +259,8 @@
         "typescript-eslint": "^8.11.0"
     },
     "dependencies": {
+        "@vscode/debugadapter": "^1.68.0",
+        "@vscode/debugprotocol": "^1.68.0",
         "log4js": "^6.9.1"
     }
 }
