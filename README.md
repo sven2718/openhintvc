@@ -1,13 +1,30 @@
-# openhintvc README
+# Stars in Shadow Dev (openhintvc)
 
-This is a simple VS Code addin to allow Stars in Shadow instances to open up specific files in response to in-game mouse clicks.
+This extension is a grab-bag of Stars in Shadow development helpers:
 
-## Features
+- Lua debugger (DAP): bundles devCAT's VSCodeLuaDebug adapter, providing debug type `lua`.
+- OpenHint server: allows Stars in Shadow instances to open files/lines in VS Code from in-game UI actions.
 
-See this [forum post](http://stars-in-shadow.com/forum/viewtopic.php?f=5&t=717&p=8430#p8430) for more info.
+## Debugging (Lua / SiS)
 
-At a low level -- running SiS with the '-devcat' command line option will tell the game to hook into devCAT VS Code debugger extension as it runs, which should give you access to breakpoints and other IDE essentials.
+Existing launch configs like `C:\dev\Leviathan\.vscode\launch.json` should work without installing the separate devCAT extension.
 
-Running with '-devcat' will also tell SiS to communicate with VS Code via this openhintvc extension any time an in-game action suggests that opening up a certain source file is appropriate.  
+Typical configs use:
+- `"type": "lua"`
+- `-devcat` / `-debugbridge` command line options
+- `listenPort` to match your game build (for Leviathan this is `46692`)
 
-Thus, if you click on a error message that pops up in game, the offending file/line should automatically open in VS Code.  Similarly, if you ctrl+click on most of the text in game, you should often be taken right to the line in the Lua sources where that text string is defined.
+## OpenHint
+
+The OpenHint server starts automatically by default (see settings under `remote.*`), or via:
+- `SiS Dev: Start OpenHint Server`
+- `SiS Dev: Stop OpenHint Server`
+
+## Licenses
+
+Bundled debugger binaries and their licenses live under `vslua/`.
+
+## Building the Lua debug adapter
+
+Adapter sources are vendored under `vslua/src/`. To rebuild `vslua/DebugAdapter.exe` and the required DLLs:
+- `npm run build:debug-adapter`

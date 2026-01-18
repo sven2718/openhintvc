@@ -2,3 +2,7 @@ out
 node_modules
 .vscode-test/
 *.vsix
+vslua/src/**/bin/
+vslua/src/**/obj/
+vslua/src/**/packages/
+.vs/
