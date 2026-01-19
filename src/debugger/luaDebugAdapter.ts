@@ -6,6 +6,14 @@ import * as path from 'node:path';
 import { DebugSession, Event, InitializedEvent, OutputEvent, Response, TerminatedEvent } from '@vscode/debugadapter';
 import { DebugProtocol } from '@vscode/debugprotocol';
 
+// SiS Lua debug adapter.
+//
+// Adapter<->debuggee protocol provenance:
+// - This speaks the existing SiS Lua debuggee protocol (TCP + `#<len>\\n<json>` framing + a `welcome` message),
+//   which started as a fork of devCAT's VSCodeLuaDebug debuggee.
+// - We keep compatibility with the (well-proven) in-engine Lua debuggee hooks, while the adapter side is now
+//   implemented in Node/TypeScript for better cross-platform support.
+
 type LaunchOrAttachResponse = DebugProtocol.LaunchResponse | DebugProtocol.AttachResponse;
 
 function splitCommandLine(commandLine: string): string[] {
@@ -325,7 +333,7 @@ class SisLuaDebugAdapterSession extends DebugSession {
 
 			this.sendEvent(
 				new OutputEvent(
-					`[devcat] waiting for debuggee at ${this.listenHost}:${this.listenPort}...\n`,
+					`[sis] waiting for debuggee at ${this.listenHost}:${this.listenPort}...\n`,
 					'console',
 				),
 			);
@@ -438,7 +446,7 @@ class SisLuaDebugAdapterSession extends DebugSession {
 			this.runInTerminalRequest(
 				{
 					kind,
-					title: 'Lua Debug Target',
+					title: 'SiS Lua Debug Target',
 					cwd: this.workingDirectory,
 					args: [fullExe, ...argList],
 					env,
@@ -451,7 +459,7 @@ class SisLuaDebugAdapterSession extends DebugSession {
 					} else {
 						this.sendEvent(
 							new OutputEvent(
-								`[devcat] runInTerminal failed: ${runResponse.message ?? 'unknown error'}\n`,
+								`[sis] runInTerminal failed: ${runResponse.message ?? 'unknown error'}\n`,
 								'stderr',
 							),
 						);
@@ -476,7 +484,7 @@ class SisLuaDebugAdapterSession extends DebugSession {
 			this.sendEvent(new OutputEvent(chunk.toString('utf8'), 'stderr'));
 		});
 		child.on('exit', (code) => {
-			this.sendEvent(new OutputEvent(`[devcat] process exited with code ${code ?? 'unknown'}\n`, 'console'));
+			this.sendEvent(new OutputEvent(`[sis] process exited with code ${code ?? 'unknown'}\n`, 'console'));
 		});
 
 		return true;
@@ -516,7 +524,7 @@ class SisLuaDebugAdapterSession extends DebugSession {
 		try {
 			msg = JSON.parse(jsonText);
 		} catch {
-			this.sendEvent(new OutputEvent(`[devcat] invalid JSON from debuggee: ${jsonText}\n`, 'stderr'));
+			this.sendEvent(new OutputEvent(`[sis] invalid JSON from debuggee: ${jsonText}\n`, 'stderr'));
 			return;
 		}
 
@@ -530,7 +538,7 @@ class SisLuaDebugAdapterSession extends DebugSession {
 			return;
 		}
 
-		this.sendEvent(new OutputEvent(`[devcat] unhandled debuggee message: ${jsonText}\n`, 'stderr'));
+		this.sendEvent(new OutputEvent(`[sis] unhandled debuggee message: ${jsonText}\n`, 'stderr'));
 	}
 
 	private onDebuggeeDisconnected(): void {

@@ -2,7 +2,7 @@
     "name": "openhintvc",
     "displayName": "Stars in Shadow Dev",
     "description": "Stars in Shadow dev tools (Lua debugger + OpenHint server)",
-    "version": "0.0.35",
+    "version": "0.0.37",
     "publisher": "sven2718",
     "icon": "images/icon.png",
     "license": "MIT",
@@ -63,7 +63,7 @@
         "debuggers": [
             {
                 "type": "lua",
-                "label": "Lua Debugger",
+                "label": "SiS Lua Debugger",
                 "enableBreakpointsFor": {
                     "languageIds": [
                         "lua"
@@ -79,7 +79,7 @@
                         "workingDirectory": "${workspaceRoot}/resources/",
                         "sourceBasePath": "${workspaceRoot}",
                         "executable": "${workspaceRoot}/x64/Release/sis_headless.exe",
-                        "arguments": "-devcat -console -debugbridge",
+                        "arguments": "-vscode -console -debugbridge",
                         "console": "integratedTerminal",
                         "listenPublicly": false,
                         "listenPort": 46692,
@@ -93,7 +93,7 @@
                         "workingDirectory": "${workspaceRoot}/resources/",
                         "sourceBasePath": "${workspaceRoot}",
                         "executable": "${workspaceRoot}/x64/Release/sis.exe",
-                        "arguments": "-noupdate -fullscreen_border -devcat",
+                        "arguments": "-noupdate -fullscreen_border -vscode",
                         "console": "externalTerminal",
                         "listenPublicly": false,
                         "listenPort": 46692,

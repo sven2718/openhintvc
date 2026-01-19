@@ -7,12 +7,16 @@ This extension is a grab-bag of Stars in Shadow development helpers:
 
 ## Debugging (Lua / SiS)
 
-Existing launch configs like `C:\dev\Leviathan\.vscode\launch.json` should work without installing the separate devCAT extension.
+Existing launch configs like `C:\dev\Leviathan\.vscode\launch.json` should work once this extension is installed (no separate debugger extension required).
 
 Typical configs use:
 - `"type": "lua"`
-- `-devcat` / `-debugbridge` command line options
+- `-vscode` (enables the SiS Lua debugger) / `-debugbridge` command line options
 - `listenPort` to match your game build (for Leviathan this is `46692`)
+
+Provenance: the on-the-wire debuggee protocol started as a fork of devCAT's
+VSCodeLuaDebug, but the adapter side is now maintained as part of the Stars in
+Shadow dev tools.
 
 ## OpenHint
 
