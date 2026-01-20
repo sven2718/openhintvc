@@ -130,6 +130,72 @@ function resolveExecutable(runtimeExecutable: string, cwd: string): string | und
 	return undefined;
 }
 
+function win32PeSubsystem(exePath: string): number | undefined {
+	if (process.platform !== 'win32') {
+		return undefined;
+	}
+
+	let fd: number | undefined;
+	try {
+		fd = fs.openSync(exePath, 'r');
+
+		const dosHeader = Buffer.alloc(0x40);
+		if (fs.readSync(fd, dosHeader, 0, dosHeader.length, 0) !== dosHeader.length) {
+			return undefined;
+		}
+		const peOffset = dosHeader.readUInt32LE(0x3c);
+
+		// PE signature (4) + COFF file header (20) + optional header through Subsystem (offset 68 + 2 bytes).
+		const peHeader = Buffer.alloc(4 + 20 + 72);
+		if (fs.readSync(fd, peHeader, 0, peHeader.length, peOffset) !== peHeader.length) {
+			return undefined;
+		}
+		if (peHeader.toString('ascii', 0, 4) !== 'PE\u0000\u0000') {
+			return undefined;
+		}
+
+		const optionalHeaderStart = 4 + 20;
+		const magic = peHeader.readUInt16LE(optionalHeaderStart);
+		if (magic !== 0x10b && magic !== 0x20b) {
+			return undefined;
+		}
+
+		return peHeader.readUInt16LE(optionalHeaderStart + 68);
+	} catch {
+		return undefined;
+	} finally {
+		if (fd !== undefined) {
+			try {
+				fs.closeSync(fd);
+			} catch {
+				// ignore
+			}
+		}
+	}
+}
+
+function shouldWrapRunInTerminalWithCmd(exePath: string): boolean {
+	if (process.platform !== 'win32') {
+		return false;
+	}
+	if (path.extname(exePath).toLowerCase() !== '.exe') {
+		return false;
+	}
+
+	// IMAGE_SUBSYSTEM_WINDOWS_GUI (2) vs IMAGE_SUBSYSTEM_WINDOWS_CUI (3).
+	const subsystem = win32PeSubsystem(exePath);
+	if (subsystem === 2) {
+		return true;
+	}
+	if (subsystem === 3) {
+		return false;
+	}
+
+	// Fallback: treat SiS GUI targets as GUI even if PE parsing fails.
+	const base = path.basename(exePath).toLowerCase();
+	return base === 'sis.exe' || base === 'sis64.exe';
+}
+
 class DebuggeeConnection {
 	readonly socket: net.Socket;
 	private buffer: Buffer = Buffer.alloc(0);
@@ -442,13 +508,20 @@ class SisLuaDebugAdapterSession extends DebugSession {
 
 			const kind = consolePref === 'integratedTerminal' ? 'integrated' : 'external';
 			this.launchedTerminalKind = kind;
+			// On Windows, some shells don't keep the terminal "owned" by GUI-subsystem
+			// executables, which leaves the shell prompt active and makes stdin/output
+			// unusable for interactive `-console` sessions. Wrap GUI exes with
+			// `cmd.exe /c` so the terminal blocks until the target exits.
+			const terminalArgs = kind === 'integrated' && shouldWrapRunInTerminalWithCmd(fullExe)
+				? ['cmd.exe', '/c', fullExe, ...argList]
+				: [fullExe, ...argList];
 
 			this.runInTerminalRequest(
 				{
 					kind,
 					title: 'SiS Lua Debug Target',
 					cwd: this.workingDirectory,
-					args: [fullExe, ...argList],
+					args: terminalArgs,
 					env,
 				},
 				15000,

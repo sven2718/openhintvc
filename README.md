@@ -14,6 +14,8 @@ Typical configs use:
 - `-vscode` (enables the SiS Lua debugger) / `-debugbridge` command line options
 - `listenPort` to match your game build (for Leviathan this is `46692`)
 
+Note (Windows): when launching a GUI-subsystem target like `sis.exe` in an integrated terminal, the debug adapter may wrap it with `cmd.exe /c` so the terminal stays "owned" by the game (stdin works for `-console`).
+
 If you can't place breakpoints in `.lua` files, check that VS Code is treating the file as the `lua` language (status bar language mode), and/or enable the workspace/user setting `debug.allowBreakpointsEverywhere`.
 
 Provenance: the debuggee protocol started as a fork of devCAT's VSCodeLuaDebug; but I've been tweaking it as I see fit.  Props to both the
