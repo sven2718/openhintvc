@@ -46,15 +46,3 @@ The Lua debug adapter is implemented in TypeScript under `src/debugger/` (built 
 4. Install the resulting `openhintvc-<version>.vsix`:
    - VS Code UI: Extensions view → `...` → `Install from VSIX...`
    - CLI: `code --install-extension .\openhintvc-<version>.vsix --force`
-
-## Publishing
-
-Publishing requires a VS Code Marketplace publisher (this extension id is `sven2718.openhintvc`) and a Personal Access Token (PAT).
-
-1. Bump version: `npm version patch` (or `minor` / `major`)
-2. `npm ci`
-3. `npm run build:all`
-4. (Recommended) Smoke-test the package: `npx @vscode/vsce package`
-5. Publish:
-   - `npx @vscode/vsce login sven2718`
-   - `npx @vscode/vsce publish`
