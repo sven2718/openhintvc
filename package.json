@@ -77,8 +77,10 @@
                         "type": "lua",
                         "request": "launch",
                         "workingDirectory": "${workspaceRoot}/resources/",
-                        "sourceBasePath": "${workspaceRoot}",
                         "executable": "${workspaceRoot}/x64/Release/sis_headless.exe",
+                        "linux": {
+                            "executable": "${workspaceRoot}/linux/build/sis_headless"
+                        },
                         "arguments": "-vscode -console -debugbridge",
                         "console": "integratedTerminal",
                         "listenPublicly": false,
@@ -91,8 +93,10 @@
                         "type": "lua",
                         "request": "launch",
                         "workingDirectory": "${workspaceRoot}/resources/",
-                        "sourceBasePath": "${workspaceRoot}",
                         "executable": "${workspaceRoot}/x64/Release/sis.exe",
+                        "linux": {
+                            "executable": "${workspaceRoot}/linux/build/sis"
+                        },
                         "arguments": "-noupdate -fullscreen_border -vscode",
                         "console": "externalTerminal",
                         "listenPublicly": false,
