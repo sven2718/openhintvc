@@ -4,8 +4,14 @@ All notable changes to the "openhintvc" extension will be documented in this fil
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
 ## [Unreleased]
+- Added a basic Lua go-to-definition provider (heuristic grep, with runtime `debug.getinfo` lookup when paused in the debugger).
 
-## [0.0.37] - 2026-01-18
+## [0.1.0] - 2026-01-22
+- Debugger: wrapped Windows GUI targets with `cmd.exe /c` for `integratedTerminal` so `-console` sessions behave properly.
+- Debugger: added Linux executable paths for the default SiS launch configs.
+- Dependencies: `npm audit --fix` updates.
+
+## [0.0.37] - 2026-01-19
 - Updated default launch configs/docs to use `-vscode` (the Leviathan-side debug flag; renamed from `-devcat`).
 
 ## [0.0.36] - 2026-01-18
