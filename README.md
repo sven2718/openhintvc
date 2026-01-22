@@ -1,36 +1,37 @@
-# Stars in Shadow Dev (openhintvc)
+# Stars in Shadow Developer Extension
 
-This extension is a grab-bag of Stars in Shadow development helpers:
+This extension is your one-stop shop for Stars in Shadow development utilities!  It includes:
 
-- Lua debugger (DAP): Node-based adapter (no Mono/.NET), providing debug type `lua`.
-- OpenHint server: allows Stars in Shadow instances to open files/lines in VS Code from in-game UI actions.
+- Lua debugger: An evolution of devcat's excellent [lua debugger](https://github.com/devcat-studio/VSCodeLuaDebug), tweaked to work better with SiS's quirky runtime enviornement.
+- OpenHint server:  A tiny integrated server that allows your running copy of Stars in Shadow to open files in VS Code.
 
 ## Debugging (Lua / SiS)
 
-Existing launch configs like `C:\dev\Leviathan\.vscode\launch.json` should work once this extension is installed (no separate debugger extension required).
+The launch config provided in your `Stars in Shadow\Lua state\.vscode` folder should work once this extension is installed (no separate debugger extension is required).
 
 Typical configs use:
 - `"type": "lua"`
-- `-vscode` (enables the SiS Lua debugger) / `-debugbridge` command line options
-- `listenPort` to match your game build (for Leviathan this is `46692`)
+-  Typical command line option include: 
+    -  `-vscode` (enables the SiS Lua debugger)
+    - `-console` (echo game engine outputs to a seperate term)
+    -  `-debugbridge` (emulate msvc debug string handling).
+- `listenPort`: SiS defaults to `46692` -- you probably want to keep that default.
 
-Note (Windows): when launching a GUI-subsystem target like `sis.exe` in an integrated terminal, the debug adapter may wrap it with `cmd.exe /c` so the terminal stays "owned" by the game (stdin works for `-console`).
+## Lua breakpoints
 
-If you can't place breakpoints in `.lua` files, check that VS Code is treating the file as the `lua` language (status bar language mode), and/or enable the workspace/user setting `debug.allowBreakpointsEverywhere`.
+For some reason that I can't figure out, after installing this extension, you'll probably need to change your workspace settings to set `debug.allowBreakpointsEverywhere`.  (If any other lua debugger devs have any idea how to remove the need for this weird kludge, let me know).
 
-Provenance: the debuggee protocol started as a fork of devCAT's VSCodeLuaDebug; but I've been tweaking it as I see fit.  Props to both the
-  Seungjae Lee (@devcat) team for his integration work, and Dan Tull (@adobe) for his awesome
-  OP_HAULT patch.  See also: http://lua-users.org/lists/lua-l/2018-05/msg00115.html.
+## Code Provenance
+
+The debuggee protocol started as a fork of devCAT's [VSCodeLuaDebug](https://github.com/devcat-studio/VSCodeLuaDebug); but I've been tweaking it as I see fit.  Props to both Seungjae Lee (@devcat) his integration work, and Dan Tull (@adobe) for his awesome `OP_HAULT` patch.  For a deeper dive into what's going on here, see this old [lua-l thread](http://lua-users.org/lists/lua-l/2018-05/msg00115.html).
 
 ## OpenHint
 
-The OpenHint server starts automatically by default (see settings under `remote.*`), or via:
+The OpenHint server starts automatically when vscode open (see settings under `remote.*`), but you can also control it manually via:
 - `SiS Dev: Start OpenHint Server`
 - `SiS Dev: Stop OpenHint Server`
 
-## Licenses
-
-The Lua debug adapter is implemented in TypeScript under `src/debugger/` (built into `out/`).
+# Extension Developer Runbook:
 
 ## Local build + install (no publishing)
 
