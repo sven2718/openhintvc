@@ -6,6 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [Unreleased]
 - Added a basic Lua go-to-definition provider (heuristic grep, with runtime `debug.getinfo` lookup when paused in the debugger).
 - Debugger manifest: switched to `contributes.breakpoints` and replaced `${workspaceRoot}` with `${workspaceFolder}`.
+- Debugger: on Windows, Shift+F5 now terminates `sis.exe` even when launched via `runInTerminal` (kills the process tree).
 
 ## [0.1.0] - 2026-01-22
 - Debugger: wrapped Windows GUI targets with `cmd.exe /c` for `integratedTerminal` so `-console` sessions behave properly.

@@ -196,6 +196,33 @@ function shouldWrapRunInTerminalWithCmd(exePath: string): boolean {
 	return base === 'sis.exe' || base === 'sis64.exe';
 }
 
+function killProcessTreeBestEffort(pid: number): void {
+	if (!Number.isFinite(pid) || pid <= 0) {
+		return;
+	}
+
+	// On Windows, `process.kill(pid)` only terminates that process and does not
+	// reliably take down GUI targets spawned via `runInTerminal` (often a shell
+	// pid), leaving `sis.exe` running after Shift+F5.
+	if (process.platform === 'win32') {
+		try {
+			child_process.spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+				stdio: 'ignore',
+				windowsHide: true,
+			});
+			return;
+		} catch {
+			// fall through to `process.kill`
+		}
+	}
+
+	try {
+		process.kill(pid);
+	} catch {
+		// ignore
+	}
+}
+
 class DebuggeeConnection {
 	readonly socket: net.Socket;
 	private buffer: Buffer = Buffer.alloc(0);
@@ -635,7 +662,12 @@ class SisLuaDebugAdapterSession extends DebugSession {
 	}
 
 	private killLaunchedProcesses(): void {
+		const pids = new Set<number>();
+
 		if (this.launchedChild) {
+			if (typeof this.launchedChild.pid === 'number') {
+				pids.add(this.launchedChild.pid);
+			}
 			try {
 				this.launchedChild.kill();
 			} catch {
@@ -647,7 +679,6 @@ class SisLuaDebugAdapterSession extends DebugSession {
 		// Best-effort kill of VS Code spawned processes.
 		//
 		// For integrated terminals, avoid killing the terminal shell when VS Code reports the same pid.
-		const pids = new Set<number>();
 		if (typeof this.launchedProcessId === 'number') {
 			const keepShellAlive =
 				this.launchedTerminalKind === 'integrated' &&
@@ -662,11 +693,7 @@ class SisLuaDebugAdapterSession extends DebugSession {
 		}
 
 		for (const pid of pids) {
-			try {
-				process.kill(pid);
-			} catch {
-				// ignore
-			}
+			killProcessTreeBestEffort(pid);
 		}
 
 		this.launchedProcessId = undefined;
