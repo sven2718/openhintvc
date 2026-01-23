@@ -26,7 +26,7 @@
     "contributes": {
         "configuration": {
             "type": "object",
-            "title": "Remote VSCode configuration",
+            "title": "Stars in Shadow Dev configuration",
             "properties": {
                 "remote.port": {
                     "type": "number",
@@ -47,6 +47,15 @@
                     "type": "boolean",
                     "default": false,
                     "description": "If set to true, error for remote.port already in use won't be shown anymore."
+                },
+                "sisDev.luaFormatter.mode": {
+                    "type": "string",
+                    "enum": [
+                        "whitespace",
+                        "simple"
+                    ],
+                    "default": "whitespace",
+                    "description": "Lua formatter mode. 'whitespace' only normalizes leading tabs (2 spaces) and otherwise preserves indentation (including whitespace-only lines); 'simple' re-indents using lightweight Lua block keywords + `{}`, but preserves visually-shallow `| function` blocks when the file already uses that style."
                 }
             }
         },
