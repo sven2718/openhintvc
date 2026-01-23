@@ -30,7 +30,7 @@ This extension provides a Lua formatter that avoids “fixing” SiS Lua dialect
 - Set your default formatter for Lua to `Stars in Shadow Dev`.
 - Configure behavior via `sisDev.luaFormatter.mode`:
   - `whitespace` (default): converts leading tabs to 2 spaces and otherwise preserves indentation (including whitespace-only lines); does not re-indent blocks (safest for SiS visual-indent conventions).
-  - `simple`: re-indents using lightweight block keywords + `{}`, but preserves visually-shallow `| function` blocks (notably `UI_File | function(_ENV)`) and avoids flattening multiline `(...)`/`[...]` continuations.
+  - `simple`: re-indents using lightweight block keywords + `{}`, but preserves visually-shallow `| function` blocks (notably `UI_File | function(_ENV)`) and avoids flattening multiline continuations (`(...)`, `[...]`, and lines following a trailing `=`).
 
 ## Code Provenance
 

@@ -315,12 +315,74 @@ function lineHasPipeFunctionOpener(line: string, startState: LongBracketState | 
 	return false;
 }
 
+function stripShortComment(line: string, startState: LongBracketState | null): string {
+	let state: LongBracketState | null = startState;
+	let inQuote: '\'' | '"' | null = null;
+
+	let i = 0;
+	while (i < line.length) {
+		if (state) {
+			const closeEnd = findLongBracketClose(line, i, state.equals);
+			if (typeof closeEnd !== 'number') return line;
+			i = closeEnd;
+			state = null;
+			continue;
+		}
+
+		const ch = line[i];
+
+		if (inQuote) {
+			if (ch === '\\') {
+				i = Math.min(i + 2, line.length);
+				continue;
+			}
+			if (ch === inQuote) {
+				inQuote = null;
+				i++;
+				continue;
+			}
+			i++;
+			continue;
+		}
+
+		if (ch === '\'' || ch === '"') {
+			inQuote = ch;
+			i++;
+			continue;
+		}
+
+		if (ch === '-' && line[i + 1] === '-') {
+			return line.slice(0, i);
+		}
+
+		if (ch === '[') {
+			const open = tryReadLongBracketOpen(line, i);
+			if (open) {
+				state = { kind: 'string', equals: open.equals };
+				i = open.endIndex;
+				continue;
+			}
+		}
+
+		i++;
+	}
+
+	return line;
+}
+
+function lineEndsWithEquals(line: string, startState: LongBracketState | null): boolean {
+	if (startState) return false;
+	const code = stripShortComment(line, startState).trimEnd();
+	return code.length > 0 && code.endsWith('=');
+}
+
 function formatLuaLines(lines: string[], mode: FormatterMode): string[] {
 	let indentLevel = 0;
 	let state: LongBracketState | null = null;
 	let parenDepth = 0;
 	let bracketDepth = 0;
 	const visualIndentSuppressStack: Array<{ closeAtIndentLevel: number }> = [];
+	let assignmentContinuationIndent: number | null = null;
 
 	const out: string[] = [];
 
@@ -328,7 +390,16 @@ function formatLuaLines(lines: string[], mode: FormatterMode): string[] {
 		const line = lines[lineIndex];
 		const startState = state;
 		const trimmed = line.trim();
-		const inContinuation = parenDepth > 0 || bracketDepth > 0;
+		const isBlank = trimmed.length === 0;
+		const isCommentLine = !startState && trimmed.startsWith('--');
+		const lineIndent = indentColumns(line);
+
+		if (assignmentContinuationIndent !== null && !startState && !isBlank && !isCommentLine && lineIndent <= assignmentContinuationIndent) {
+			assignmentContinuationIndent = null;
+		}
+
+		const inContinuation =
+			parenDepth > 0 || bracketDepth > 0 || (assignmentContinuationIndent !== null && lineIndent > assignmentContinuationIndent);
 
 		const preDedent = computePreDedent(line, startState);
 		const analysis = analyzeIndentDelta(line, startState);
@@ -389,6 +460,10 @@ function formatLuaLines(lines: string[], mode: FormatterMode): string[] {
 		state = analysis.endState;
 		parenDepth = Math.max(0, parenDepth + analysis.parenDelta);
 		bracketDepth = Math.max(0, bracketDepth + analysis.bracketDelta);
+
+		if (mode === 'simple' && lineEndsWithEquals(line, startState)) {
+			assignmentContinuationIndent = indentColumns(outLine);
+		}
 
 		while (visualIndentSuppressStack.length > 0) {
 			const top = visualIndentSuppressStack[visualIndentSuppressStack.length - 1];
