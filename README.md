@@ -4,6 +4,8 @@ This extension is your one-stop shop for Stars in Shadow development utilities! 
 
 - Lua debugger: An evolution of devcat's excellent [lua debugger](https://github.com/devcat-studio/VSCodeLuaDebug), tweaked to work better with SiS's quirky runtime enviornement.
 - OpenHint server:  A tiny integrated server that allows your running copy of Stars in Shadow to open files in VS Code.
+- Lua go-to-definition: A lightweight `Ctrl+Click` / `F12` implementation for SiS Lua that uses workspace search heuristics, and (when paused in the debugger) runtime `debug.getinfo` to jump to the exact definition line.
+- Lua formatter: Minimal SiS-safe Lua formatting (default: whitespace normalization; optional: simple re-indent).
 
 ## Debugging (Lua / SiS)
 
@@ -19,7 +21,16 @@ Typical configs use:
 
 ## Lua breakpoints
 
-For some reason that I can't figure out, after installing this extension, you'll probably need to change your workspace settings to set `debug.allowBreakpointsEverywhere`.  (If any other lua debugger devs have any idea how to remove the need for this weird kludge, let me know).
+This extension contributes Lua breakpoint support, so breakpoints should work normally in `lua` files. If VS Code still refuses to place breakpoints, make sure the file's language mode is set to Lua; as a fallback you can set `debug.allowBreakpointsEverywhere`.
+
+## Formatting (Lua)
+
+This extension provides a Lua formatter that avoids “fixing” SiS Lua dialect constructs.
+
+- Set your default formatter for Lua to `Stars in Shadow Dev`.
+- Configure behavior via `sisDev.luaFormatter.mode`:
+  - `whitespace` (default): converts leading tabs to 2 spaces and otherwise preserves indentation (including whitespace-only lines); does not re-indent blocks (safest for SiS visual-indent conventions).
+  - `simple`: re-indents using lightweight block keywords + `{}`, but preserves visually-shallow `| function` blocks (notably `UI_File | function(_ENV)`) and avoids flattening multiline continuations (`(...)`, `[...]`, and lines following a trailing `=`).
 
 ## Code Provenance
 

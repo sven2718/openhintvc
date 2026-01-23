@@ -3,6 +3,8 @@ import * as path from 'node:path';
 import Server from './lib/Server';
 import Logger from './utils/Logger';
 import StatusBarItem from './lib/StatusBarItem';
+import { registerLuaDefinitionProvider } from './features/LuaDefinitionProvider';
+import { registerLuaFormattingProvider } from './features/LuaFormattingProvider';
 
 const L = Logger.getLogger('extension');
 
@@ -117,6 +119,9 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.debug.registerDebugAdapterDescriptorFactory('lua', new LuaDebugAdapterDescriptorFactory(context)),
   );
+
+  registerLuaDefinitionProvider(context);
+  registerLuaFormattingProvider(context);
 }
 
 export function deactivate() {

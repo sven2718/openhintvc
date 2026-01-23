@@ -2,7 +2,7 @@
     "name": "openhintvc",
     "displayName": "Stars in Shadow Dev",
     "description": "Stars in Shadow dev tools (Lua debugger + OpenHint server)",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "publisher": "sven2718",
     "icon": "images/icon.png",
     "license": "MIT",
@@ -26,7 +26,7 @@
     "contributes": {
         "configuration": {
             "type": "object",
-            "title": "Remote VSCode configuration",
+            "title": "Stars in Shadow Dev configuration",
             "properties": {
                 "remote.port": {
                     "type": "number",
@@ -47,6 +47,15 @@
                     "type": "boolean",
                     "default": false,
                     "description": "If set to true, error for remote.port already in use won't be shown anymore."
+                },
+                "sisDev.luaFormatter.mode": {
+                    "type": "string",
+                    "enum": [
+                        "whitespace",
+                        "simple"
+                    ],
+                    "default": "whitespace",
+                    "description": "Lua formatter mode. 'whitespace' only normalizes leading tabs (2 spaces) and otherwise preserves indentation (including whitespace-only lines); 'simple' re-indents using lightweight Lua block keywords + `{}`, while preserving visually-shallow `| function` blocks and not flattening multiline continuations (`(...)`, `[...]`, and lines following a trailing `=`)."
                 }
             }
         },
@@ -60,15 +69,15 @@
                 "title": "SiS Dev: Stop OpenHint Server"
             }
         ],
+        "breakpoints": [
+            {
+                "language": "lua"
+            }
+        ],
         "debuggers": [
             {
                 "type": "lua",
                 "label": "SiS Lua Debugger",
-                "enableBreakpointsFor": {
-                    "languageIds": [
-                        "lua"
-                    ]
-                },
                 "program": "./out/debugger/luaDebugAdapter.js",
                 "runtime": "node",
                 "initialConfigurations": [
@@ -76,10 +85,10 @@
                         "name": "console-sis",
                         "type": "lua",
                         "request": "launch",
-                        "workingDirectory": "${workspaceRoot}/resources/",
-                        "executable": "${workspaceRoot}/x64/Release/sis_headless.exe",
+                        "workingDirectory": "${workspaceFolder}/resources/",
+                        "executable": "${workspaceFolder}/x64/Release/sis_headless.exe",
                         "linux": {
-                            "executable": "${workspaceRoot}/linux/build/sis_headless"
+                            "executable": "${workspaceFolder}/linux/build/sis_headless"
                         },
                         "arguments": "-vscode -console -debugbridge",
                         "console": "integratedTerminal",
@@ -92,10 +101,10 @@
                         "name": "launch-sis",
                         "type": "lua",
                         "request": "launch",
-                        "workingDirectory": "${workspaceRoot}/resources/",
-                        "executable": "${workspaceRoot}/x64/Release/sis.exe",
+                        "workingDirectory": "${workspaceFolder}/resources/",
+                        "executable": "${workspaceFolder}/x64/Release/sis.exe",
                         "linux": {
-                            "executable": "${workspaceRoot}/linux/build/sis"
+                            "executable": "${workspaceFolder}/linux/build/sis"
                         },
                         "arguments": "-noupdate -fullscreen_border -vscode",
                         "console": "externalTerminal",
@@ -108,8 +117,8 @@
                         "name": "wait-sis",
                         "type": "lua",
                         "request": "attach",
-                        "workingDirectory": "${workspaceRoot}/resources/",
-                        "sourceBasePath": "${workspaceRoot}",
+                        "workingDirectory": "${workspaceFolder}/resources/",
+                        "sourceBasePath": "${workspaceFolder}",
                         "listenPublicly": false,
                         "listenPort": 46692,
                         "encoding": "UTF-8"
@@ -118,9 +127,9 @@
                         "name": "launch-lua",
                         "type": "lua",
                         "request": "launch",
-                        "workingDirectory": "${workspaceRoot}",
-                        "sourceBasePath": "${workspaceRoot}",
-                        "executable": "${workspaceRoot}/lua.exe",
+                        "workingDirectory": "${workspaceFolder}",
+                        "sourceBasePath": "${workspaceFolder}",
+                        "executable": "${workspaceFolder}/lua.exe",
                         "arguments": "main.lua",
                         "console": "externalTerminal",
                         "listenPublicly": false,
@@ -132,8 +141,8 @@
                         "name": "wait",
                         "type": "lua",
                         "request": "attach",
-                        "workingDirectory": "${workspaceRoot}",
-                        "sourceBasePath": "${workspaceRoot}",
+                        "workingDirectory": "${workspaceFolder}",
+                        "sourceBasePath": "${workspaceFolder}",
                         "listenPublicly": false,
                         "listenPort": 56789,
                         "encoding": "UTF-8"
@@ -154,17 +163,17 @@
                             "workingDirectory": {
                                 "type": "string",
                                 "description": "Working directory",
-                                "default": "${workspaceRoot}"
+                                "default": "${workspaceFolder}"
                             },
                             "sourceBasePath": {
                                 "type": "string",
                                 "description": "Base path of lua source files",
-                                "default": "${workspaceRoot}"
+                                "default": "${workspaceFolder}"
                             },
                             "executable": {
                                 "type": "string",
                                 "description": "An exe file to launch",
-                                "default": "${workspaceRoot}/lua.exe"
+                                "default": "${workspaceFolder}/lua.exe"
                             },
                             "arguments": {
                                 "type": "string",
@@ -215,12 +224,12 @@
                             "workingDirectory": {
                                 "type": "string",
                                 "description": "Working directory",
-                                "default": "${workspaceRoot}"
+                                "default": "${workspaceFolder}"
                             },
                             "sourceBasePath": {
                                 "type": "string",
                                 "description": "Base path of lua source files",
-                                "default": "${workspaceRoot}"
+                                "default": "${workspaceFolder}"
                             },
                             "listenPublicly": {
                                 "type": "boolean",
