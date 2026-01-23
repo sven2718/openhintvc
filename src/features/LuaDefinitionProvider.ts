@@ -100,20 +100,6 @@ function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number): Promise<T> 
 	});
 }
 
-async function getTopFrameId(session: vscode.DebugSession): Promise<number | undefined> {
-	try {
-		const stack = (await withTimeout(
-			session.customRequest('stackTrace', { threadId: 0, startFrame: 0, levels: 1 }),
-			DEBUG_REQUEST_TIMEOUT_MS,
-		)) as { stackFrames?: Array<{ id?: number }> };
-
-		const frameId = stack?.stackFrames?.[0]?.id;
-		return typeof frameId === 'number' ? frameId : undefined;
-	} catch {
-		return undefined;
-	}
-}
-
 async function evaluateInDebugSession(
 	session: vscode.DebugSession,
 	expression: string,
@@ -187,12 +173,10 @@ async function tryRuntimeDefinition(
 	if (!session || session.type !== 'lua') return undefined;
 	if (token.isCancellationRequested) return undefined;
 
-	const frameId = await getTopFrameId(session);
-	if (typeof frameId !== 'number') return undefined;
-	if (token.isCancellationRequested) return undefined;
-
-	const sourceRaw = await evaluateInDebugSession(session, `debug.getinfo(${expressionText}, 'S').source`, frameId);
-	const lineRaw = await evaluateInDebugSession(session, `debug.getinfo(${expressionText}, 'S').linedefined`, frameId);
+	// Avoid `stackTrace`/frame-dependent queries here: the debuggee may not be
+	// paused (and may not have a meaningful stack we can inspect).
+	const sourceRaw = await evaluateInDebugSession(session, `debug.getinfo(${expressionText}, 'S').source`, undefined);
+	const lineRaw = await evaluateInDebugSession(session, `debug.getinfo(${expressionText}, 'S').linedefined`, undefined);
 	if (!sourceRaw || !lineRaw) return undefined;
 
 	const source = stripLuaDebuggeeQuotes(sourceRaw).trim();

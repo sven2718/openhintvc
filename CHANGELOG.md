@@ -5,6 +5,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 - Added a basic Lua go-to-definition provider (heuristic grep, with runtime `debug.getinfo` lookup when paused in the debugger).
+- Lua go-to-definition: avoid `stackTrace`-dependent runtime lookups (prevents debuggee errors when the game isn't paused).
 - Debugger manifest: switched to `contributes.breakpoints` and replaced `${workspaceRoot}` with `${workspaceFolder}`.
 - Debugger: on Windows, Shift+F5 now terminates `sis.exe` even when launched via `runInTerminal` (kills the process tree).
 
