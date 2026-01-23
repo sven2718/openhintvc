@@ -20,7 +20,7 @@ Typical configs use:
 
 ## Lua breakpoints
 
-For some reason that I can't figure out, after installing this extension, you'll probably need to change your workspace settings to set `debug.allowBreakpointsEverywhere`.  (If any other lua debugger devs have any idea how to remove the need for this weird kludge, let me know).
+This extension contributes Lua breakpoint support, so breakpoints should work normally in `lua` files. If VS Code still refuses to place breakpoints, make sure the file's language mode is set to Lua; as a fallback you can set `debug.allowBreakpointsEverywhere`.
 
 ## Code Provenance
 
