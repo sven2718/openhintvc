@@ -55,7 +55,7 @@
                         "simple"
                     ],
                     "default": "whitespace",
-                    "description": "Lua formatter mode. 'whitespace' only normalizes leading tabs (2 spaces) and otherwise preserves indentation (including whitespace-only lines); 'simple' re-indents using lightweight Lua block keywords + `{}`, but preserves visually-shallow `| function` blocks when the file already uses that style."
+                    "description": "Lua formatter mode. 'whitespace' only normalizes leading tabs (2 spaces) and otherwise preserves indentation (including whitespace-only lines); 'simple' re-indents using lightweight Lua block keywords + `{}`, while preserving visually-shallow `| function` blocks and not flattening multiline `(...)`/`[...]` continuations."
                 }
             }
         },

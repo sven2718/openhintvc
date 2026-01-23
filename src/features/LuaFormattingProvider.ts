@@ -80,9 +80,14 @@ function computePreDedent(line: string, startState: LongBracketState | null): nu
 	return 0;
 }
 
-function analyzeIndentDelta(line: string, startState: LongBracketState | null): { endState: LongBracketState | null; delta: number } {
+function analyzeIndentDelta(
+	line: string,
+	startState: LongBracketState | null,
+): { endState: LongBracketState | null; delta: number; parenDelta: number; bracketDelta: number } {
 	let state: LongBracketState | null = startState;
 	let delta = 0;
+	let parenDelta = 0;
+	let bracketDelta = 0;
 	let inQuote: '\'' | '"' | null = null;
 	let sawSignificant = false;
 	let firstWordToken: string | undefined;
@@ -91,7 +96,7 @@ function analyzeIndentDelta(line: string, startState: LongBracketState | null): 
 	while (i < line.length) {
 		if (state) {
 			const closeEnd = findLongBracketClose(line, i, state.equals);
-			if (typeof closeEnd !== 'number') return { endState: state, delta };
+			if (typeof closeEnd !== 'number') return { endState: state, delta, parenDelta, bracketDelta };
 			i = closeEnd;
 			state = null;
 			continue;
@@ -135,6 +140,17 @@ function analyzeIndentDelta(line: string, startState: LongBracketState | null): 
 			break; // rest of line is a short comment
 		}
 
+		if (ch === '(') {
+			parenDelta++;
+			i++;
+			continue;
+		}
+		if (ch === ')') {
+			parenDelta--;
+			i++;
+			continue;
+		}
+
 		if (ch === '[') {
 			const open = tryReadLongBracketOpen(line, i);
 			if (open) {
@@ -142,6 +158,14 @@ function analyzeIndentDelta(line: string, startState: LongBracketState | null): 
 				i = open.endIndex;
 				continue;
 			}
+			bracketDelta++;
+			i++;
+			continue;
+		}
+		if (ch === ']') {
+			bracketDelta--;
+			i++;
+			continue;
 		}
 
 		if (ch === '{') {
@@ -178,7 +202,7 @@ function analyzeIndentDelta(line: string, startState: LongBracketState | null): 
 		i++;
 	}
 
-	return { endState: state, delta };
+	return { endState: state, delta, parenDelta, bracketDelta };
 }
 
 function normalizeLeadingWhitespace(line: string): string {
@@ -294,6 +318,8 @@ function lineHasPipeFunctionOpener(line: string, startState: LongBracketState | 
 function formatLuaLines(lines: string[], mode: FormatterMode): string[] {
 	let indentLevel = 0;
 	let state: LongBracketState | null = null;
+	let parenDepth = 0;
+	let bracketDepth = 0;
 	const visualIndentSuppressStack: Array<{ closeAtIndentLevel: number }> = [];
 
 	const out: string[] = [];
@@ -302,6 +328,7 @@ function formatLuaLines(lines: string[], mode: FormatterMode): string[] {
 		const line = lines[lineIndex];
 		const startState = state;
 		const trimmed = line.trim();
+		const inContinuation = parenDepth > 0 || bracketDepth > 0;
 
 		const preDedent = computePreDedent(line, startState);
 		const analysis = analyzeIndentDelta(line, startState);
@@ -312,11 +339,16 @@ function formatLuaLines(lines: string[], mode: FormatterMode): string[] {
 		if (!startState) {
 			if (trimmed.length === 0) {
 				// Preserve whitespace-only lines to avoid noisy diffs; only normalize tabs.
-				outLine = line.replace(/\t/g, ' '.repeat(INDENT_SIZE));
+				outLine = normalizeLeadingWhitespace(line);
 			} else if (mode === 'simple') {
-				const content = line.replace(/^[ \t]+/, '');
-				const visualIndent = Math.max(0, indentLevel - preDedent - suppressionDepth);
-				outLine = ' '.repeat(visualIndent * INDENT_SIZE) + content;
+				if (inContinuation) {
+					// Don't flatten multiline call/table argument indentation.
+					outLine = normalizeLeadingWhitespace(line);
+				} else {
+					const content = line.replace(/^[ \t]+/, '');
+					const visualIndent = Math.max(0, indentLevel - preDedent - suppressionDepth);
+					outLine = ' '.repeat(visualIndent * INDENT_SIZE) + content;
+				}
 			} else {
 				outLine = normalizeLeadingWhitespace(line);
 			}
@@ -324,7 +356,7 @@ function formatLuaLines(lines: string[], mode: FormatterMode): string[] {
 
 		out.push(outLine);
 
-		if (mode === 'simple' && !startState) {
+		if (mode === 'simple' && !startState && !inContinuation) {
 			// SiS style is often "visually shallow" inside nested piped functions (esp. UI_File).
 			// Respect the file's existing choice by suppressing one indent level when the block body
 			// is not indented relative to the opener.
@@ -355,6 +387,8 @@ function formatLuaLines(lines: string[], mode: FormatterMode): string[] {
 
 		indentLevel = Math.max(0, indentLevel + analysis.delta);
 		state = analysis.endState;
+		parenDepth = Math.max(0, parenDepth + analysis.parenDelta);
+		bracketDepth = Math.max(0, bracketDepth + analysis.bracketDelta);
 
 		while (visualIndentSuppressStack.length > 0) {
 			const top = visualIndentSuppressStack[visualIndentSuppressStack.length - 1];
