@@ -4,6 +4,8 @@ All notable changes to the "openhintvc" extension will be documented in this fil
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
 ## [Unreleased]
+
+## [0.1.1] - 2026-01-23
 - Added a basic Lua go-to-definition provider (heuristic grep, with runtime `debug.getinfo` lookup when paused in the debugger).
 - Lua go-to-definition: avoid `stackTrace`-dependent runtime lookups (prevents debuggee errors when the game isn't paused).
 - Debugger manifest: switched to `contributes.breakpoints` and replaced `${workspaceRoot}` with `${workspaceFolder}`.
