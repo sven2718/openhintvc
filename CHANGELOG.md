@@ -5,6 +5,13 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-01-29
+- Debugger (Windows): if the game can't process `sis_exit` promptly (e.g. during galaxy generation), force-kill the launched process while keeping the integrated terminal shell alive.
+
+## [0.1.2] - 2026-01-29
+- Debugger (Windows): avoid killing the integrated terminal shell on stop (prevents the recurring “terminal process ... terminated with exit code: 1” popup).
+- Debugger: stopping before the debuggee connects no longer reports a failed launch response (avoids the modal “Debug Session Canceled” beep).
+
 ## [0.1.1] - 2026-01-23
 - Added a basic Lua go-to-definition provider (heuristic grep, with runtime `debug.getinfo` lookup when paused in the debugger).
 - Lua go-to-definition: avoid `stackTrace`-dependent runtime lookups (prevents debuggee errors when the game isn't paused).

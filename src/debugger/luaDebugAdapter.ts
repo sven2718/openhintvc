@@ -206,10 +206,12 @@ function killProcessTreeBestEffort(pid: number): void {
 	// pid), leaving `sis.exe` running after Shift+F5.
 	if (process.platform === 'win32') {
 		try {
-			child_process.spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+			const child = child_process.spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {
 				stdio: 'ignore',
 				windowsHide: true,
+				detached: true,
 			});
+			child.unref();
 			return;
 		} catch {
 			// fall through to `process.kill`
@@ -218,6 +220,65 @@ function killProcessTreeBestEffort(pid: number): void {
 
 	try {
 		process.kill(pid);
+	} catch {
+		// ignore
+	}
+}
+
+function killImageTreeBestEffort(imageName: string): void {
+	if (process.platform !== 'win32') {
+		return;
+	}
+	if (!isNonEmptyString(imageName)) {
+		return;
+	}
+
+	try {
+		const child = child_process.spawn('taskkill', ['/IM', imageName, '/T', '/F'], {
+			stdio: 'ignore',
+			windowsHide: true,
+			detached: true,
+		});
+		child.unref();
+	} catch {
+		// ignore
+	}
+}
+
+function killProcessDescendantsBestEffort(rootPid: number): void {
+	if (process.platform !== 'win32') {
+		return;
+	}
+	if (!Number.isFinite(rootPid) || rootPid <= 0) {
+		return;
+	}
+
+	// Use PowerShell to kill only descendants of the integrated terminal shell pid,
+	// leaving the shell alive (avoids VS Code's noisy "terminal process ... exit code: 1" popup).
+	// This is a best-effort fallback for cases where the debuggee can't process `sis_exit`
+	// promptly (e.g. a long-running load step that doesn't call `debuggee.poll()`).
+	const script = [
+		"$ErrorActionPreference='SilentlyContinue'",
+		'function Get-Descendants([int]$ppid) {',
+		"\t$children = Get-CimInstance Win32_Process -Filter \"ParentProcessId=$ppid\" | Select-Object -ExpandProperty ProcessId",
+		"\tforeach($c in $children) {",
+		"\t\t$c",
+		'\t\tGet-Descendants $c',
+		'\t}',
+		'}',
+		'$root = [int]$args[0]',
+		'$desc = @(Get-Descendants $root) | Select-Object -Unique',
+		'foreach($pid in $desc) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }',
+		'exit 0',
+	].join('; ');
+
+	try {
+		const child = child_process.spawn(
+			'powershell.exe',
+			['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script, String(rootPid)],
+			{ stdio: 'ignore', windowsHide: true, detached: true },
+		);
+		child.unref();
 	} catch {
 		// ignore
 	}
@@ -294,6 +355,10 @@ class SisLuaDebugAdapterSession extends DebugSession {
 	private listener?: net.Server;
 	private pendingStartResponse?: LaunchOrAttachResponse;
 	private pendingStartRequest?: DebugProtocol.Request;
+	private sessionToken = 0;
+	private stopping = false;
+	private activeKind?: 'launch' | 'attach';
+	private customRequestSeq = 1;
 
 	private workingDirectory = '';
 	private sourceBasePath = '';
@@ -360,11 +425,7 @@ class SisLuaDebugAdapterSession extends DebugSession {
 		_args: DebugProtocol.DisconnectArguments,
 		_request?: DebugProtocol.Request,
 	): void {
-		this.killLaunchedProcesses();
-		this.closeListener();
-		this.closeDebuggee();
-		this.sendResponse(response);
-		this.shutdown();
+		this.stopDebuggingSession(response);
 	}
 
 	protected terminateRequest(
@@ -372,8 +433,73 @@ class SisLuaDebugAdapterSession extends DebugSession {
 		_args: DebugProtocol.TerminateArguments,
 		_request?: DebugProtocol.Request,
 	): void {
-		this.killLaunchedProcesses();
+		this.stopDebuggingSession(response);
+	}
+
+	private stopDebuggingSession(response: DebugProtocol.Response): void {
+		// First: unblock VS Code (always respond quickly).
+		// If launch/attach is still pending (we haven't seen a debuggee connect yet),
+		// respond to that request too so the client can shut down cleanly.
+		if (this.pendingStartResponse) {
+			// VS Code treats a failed launch response as a modal error (beep + click-to-dismiss).
+			// For "Stop Debugging before the debuggee connects", we prefer a clean no-error stop.
+			this.pendingStartResponse.success = true;
+			delete (this.pendingStartResponse as any).message;
+			this.sendResponse(this.pendingStartResponse);
+			this.pendingStartResponse = undefined;
+			this.pendingStartRequest = undefined;
+		}
+
 		this.sendResponse(response);
+
+		if (this.stopping) {
+			return;
+		}
+		this.stopping = true;
+		this.sessionToken++;
+
+		// Some stop paths send `terminate` without a follow-up `disconnect`.
+		this.sendEvent(new TerminatedEvent());
+
+		// If we launched the debuggee and it is connected, ask it to exit cleanly
+		// so we don't have to kill the integrated terminal shell (which triggers
+		// VS Code's "terminal process ... terminated with exit code: 1" popup).
+		const stopToken = this.sessionToken;
+		if (this.activeKind === 'launch' && this.debuggee) {
+			this.requestDebuggeeExitBestEffort();
+			setTimeout(() => {
+				if (stopToken !== this.sessionToken) return;
+
+				// If the debuggee didn't exit quickly (common during long-running loads),
+				// force-kill the launched game while keeping the integrated shell alive.
+				if (process.platform === 'win32') {
+					if (this.launchedTerminalKind === 'integrated' && typeof this.launchedShellProcessId === 'number') {
+						killProcessDescendantsBestEffort(this.launchedShellProcessId);
+					} else if (this.launchedExecutableFullPath) {
+						killImageTreeBestEffort(path.basename(this.launchedExecutableFullPath));
+					}
+				}
+
+				this.killLaunchedProcesses();
+				this.closeListener();
+				this.closeDebuggee();
+				this.shutdown();
+			}, 250);
+			return;
+		}
+
+		// Stop before connect: best-effort hard kill the launched image, but avoid
+		// killing the integrated terminal shell (rare edge case).
+		if (this.activeKind === 'launch' && process.platform === 'win32' && this.launchedExecutableFullPath) {
+			killImageTreeBestEffort(path.basename(this.launchedExecutableFullPath));
+		}
+
+		setImmediate(() => {
+			this.killLaunchedProcesses();
+			this.closeListener();
+			this.closeDebuggee();
+			this.shutdown();
+		});
 	}
 
 	private closeDebuggee(): void {
@@ -398,6 +524,9 @@ class SisLuaDebugAdapterSession extends DebugSession {
 		request: DebugProtocol.Request | undefined,
 		args: DebugProtocol.LaunchRequestArguments | DebugProtocol.AttachRequestArguments,
 	): Promise<void> {
+		const startToken = ++this.sessionToken;
+		this.stopping = false;
+		this.activeKind = kind;
 		try {
 			this.killLaunchedProcesses();
 			this.closeListener();
@@ -409,6 +538,14 @@ class SisLuaDebugAdapterSession extends DebugSession {
 			}
 
 			const server = await this.openListener(kind, response, request, args);
+			if (startToken !== this.sessionToken) {
+				try {
+					server?.close();
+				} catch {
+					// ignore
+				}
+				return;
+			}
 			if (!server) {
 				return;
 			}
@@ -418,6 +555,9 @@ class SisLuaDebugAdapterSession extends DebugSession {
 
 			if (kind === 'launch') {
 				const ok = this.launchTargetProcess(response, args);
+				if (startToken !== this.sessionToken) {
+					return;
+				}
 				if (!ok) {
 					this.closeListener();
 					return;
@@ -629,6 +769,11 @@ class SisLuaDebugAdapterSession extends DebugSession {
 		}
 
 		if (msg?.type === 'event' && typeof msg.event === 'string') {
+			// Adapter-internal control events.
+			if (msg.event === 'sis_adapter_internal' && msg?.body && typeof msg.body === 'object') {
+				// Currently unused; reserved for future.
+				return;
+			}
 			this.sendEvent(new Event(msg.event, msg.body));
 			return;
 		}
@@ -643,6 +788,10 @@ class SisLuaDebugAdapterSession extends DebugSession {
 
 	private onDebuggeeDisconnected(): void {
 		this.debuggee = undefined;
+		if (this.stopping) {
+			this.shutdown();
+			return;
+		}
 		this.sendEvent(new TerminatedEvent());
 		this.shutdown();
 	}
@@ -678,18 +827,16 @@ class SisLuaDebugAdapterSession extends DebugSession {
 
 		// Best-effort kill of VS Code spawned processes.
 		//
-		// For integrated terminals, avoid killing the terminal shell when VS Code reports the same pid.
-		if (typeof this.launchedProcessId === 'number') {
-			const keepShellAlive =
-				this.launchedTerminalKind === 'integrated' &&
-				typeof this.launchedShellProcessId === 'number' &&
-				this.launchedProcessId === this.launchedShellProcessId;
-			if (!keepShellAlive) {
+		// For integrated terminals, do *not* kill the shell process (PowerShell/CMD),
+		// otherwise VS Code shows a noisy "terminal process ... terminated with exit code: 1".
+		// Instead, we ask the debuggee to exit cleanly (see `requestDebuggeeExitBestEffort`).
+		if (this.launchedTerminalKind === 'external') {
+			if (typeof this.launchedProcessId === 'number') {
 				pids.add(this.launchedProcessId);
 			}
-		}
-		if (this.launchedTerminalKind !== 'integrated' && typeof this.launchedShellProcessId === 'number') {
-			pids.add(this.launchedShellProcessId);
+			if (typeof this.launchedShellProcessId === 'number') {
+				pids.add(this.launchedShellProcessId);
+			}
 		}
 
 		for (const pid of pids) {
@@ -700,6 +847,22 @@ class SisLuaDebugAdapterSession extends DebugSession {
 		this.launchedShellProcessId = undefined;
 		this.launchedTerminalKind = undefined;
 		this.launchedExecutableFullPath = undefined;
+	}
+
+	private requestDebuggeeExitBestEffort(): void {
+		if (!this.debuggee) return;
+		try {
+			this.debuggee.sendRawJsonText(
+				JSON.stringify({
+					seq: this.customRequestSeq++,
+					type: 'request',
+					command: 'sis_exit',
+					arguments: {},
+				}),
+			);
+		} catch {
+			// ignore
+		}
 	}
 }
 

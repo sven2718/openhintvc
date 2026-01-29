@@ -19,6 +19,14 @@ Typical configs use:
     -  `-debugbridge` (emulate msvc debug string handling).
 - `listenPort`: SiS defaults to `46692` -- you probably want to keep that default.
 
+## Stopping / restarting (Windows)
+
+The adapter is intended to treat Stop Debugging as a hard stop: terminate the
+launched process tree, close the debuggee connection, and end the session
+promptly.  However, implementing this behavior robustly requires a relatively
+recent build of SiS -- if you're running a version older than 1.5.0 -- you may
+see issues where stopping the debugger does not quit the game.
+
 ## Lua breakpoints
 
 This extension contributes Lua breakpoint support, so breakpoints should work normally in `lua` files. If VS Code still refuses to place breakpoints, make sure the file's language mode is set to Lua; as a fallback you can set `debug.allowBreakpointsEverywhere`.
