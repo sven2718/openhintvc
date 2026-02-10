@@ -5,6 +5,9 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-02-10
+- Lua go-to-definition: resolve locals/params/upvalues (including when used as the base of a member chain like `ship.empire`), with improved file-local definition scanning.
+
 ## [0.1.3] - 2026-01-29
 - Debugger (Windows): if the game can't process `sis_exit` promptly (e.g. during galaxy generation), force-kill the launched process while keeping the integrated terminal shell alive.
 
