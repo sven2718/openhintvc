@@ -2,7 +2,7 @@
     "name": "openhintvc",
     "displayName": "Stars in Shadow Dev",
     "description": "Stars in Shadow dev tools (Lua debugger + OpenHint server)",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "publisher": "sven2718",
     "icon": "images/icon.png",
     "license": "MIT",
