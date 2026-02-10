@@ -3,6 +3,7 @@ import * as child_process from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Logger from '../utils/Logger';
+import { findSisLuaLocalDefinitionOffset, findSisLuaUnqualifiedDefinitionOffsets } from '../lib/SisLua';
 
 const L = Logger.getLogger('LuaDefinitionProvider');
 
@@ -18,7 +19,43 @@ function isLuaIdentifierChar(ch: string): boolean {
 }
 
 function isLuaIdentifierChainChar(ch: string): boolean {
-	return isLuaIdentifierChar(ch) || ch === '.' || ch === ':';
+	// SiS dialect: allow postfix `?`/`!` to stay part of the selection, then strip.
+	return isLuaIdentifierChar(ch) || ch === '.' || ch === ':' || ch === '?' || ch === '!';
+}
+
+function getLuaIdentifierAtPosition(
+	document: vscode.TextDocument,
+	position: vscode.Position,
+): { name: string; precededByAccessor: boolean } | undefined {
+	const lineText = document.lineAt(position.line).text;
+	if (!lineText) return undefined;
+
+	const isWordChar = (ch: string): boolean => isLuaIdentifierChar(ch) || ch === '?' || ch === '!';
+
+	let start = Math.min(position.character, lineText.length);
+	let end = start;
+
+	while (start > 0 && isWordChar(lineText[start - 1])) {
+		start--;
+	}
+	while (end < lineText.length && isWordChar(lineText[end])) {
+		end++;
+	}
+
+	let raw = lineText.slice(start, end);
+	raw = raw.replace(/[?!]/g, '');
+
+	if (!raw) return undefined;
+	if (!isLuaIdentifierStart(raw[0])) return undefined;
+
+	for (let i = 0; i < raw.length; i++) {
+		if (!isLuaIdentifierChar(raw[i])) return undefined;
+	}
+
+	let j = start - 1;
+	while (j >= 0 && (lineText[j] === ' ' || lineText[j] === '\t')) j--;
+	const precededByAccessor = j >= 0 && (lineText[j] === '.' || lineText[j] === ':');
+	return { name: raw, precededByAccessor };
 }
 
 function asLuaIdentifierChain(value: string): string | undefined {
@@ -61,6 +98,9 @@ function getLuaIdentifierChainAtPosition(
 	let raw = lineText.slice(start, end);
 	while (raw.length > 0 && (raw[0] === '.' || raw[0] === ':')) raw = raw.slice(1);
 	while (raw.length > 0 && (raw[raw.length - 1] === '.' || raw[raw.length - 1] === ':')) raw = raw.slice(0, -1);
+
+	// SiS dialect: safe navigation / required postfix.
+	raw = raw.replace(/[?!]/g, '');
 
 	const chain = asLuaIdentifierChain(raw);
 	if (!chain) return undefined;
@@ -197,6 +237,289 @@ function isProbablyCommentLine(text: string): boolean {
 	return text.trimStart().startsWith('--');
 }
 
+function splitLuaChainParts(text: string): string[] {
+	return text.split(/[.:]/g).filter((x) => x.length > 0);
+}
+
+const SIS_MODULE_PREFIX_TO_DIR: Record<string, string> = {
+	action: 'Actions',
+	motion_function: 'MotionFunctions',
+	gui: 'GUI',
+	order: 'Orders',
+	drawers: 'Drawers',
+	AI: 'AI',
+};
+
+function stripSisLuaEnvPrefix(name: string): string {
+	return name.replace(/^[@~]+/, '');
+}
+
+function detectSisEnvOverrideName(text: string, fileBaseName: string): string | undefined {
+	const trimmedBase = stripSisLuaEnvPrefix(fileBaseName);
+
+	const lines = text.split(/\r?\n/);
+	const head = lines
+		.slice(0, 60)
+		.filter((l) => !l.trimStart().startsWith('--'))
+		.join('\n');
+
+	const prop = head.match(/_ENV\s*=\s*ensure_property_env\s*\(\s*_ENV\s*(?:,\s*(['"])(.*?)\1)?/);
+	if (prop) return prop[2] ?? trimmedBase;
+
+	const fileEnv = head.match(/_ENV\s*=\s*create_file_env\s*\(\s*_ENV\s*(?:,\s*(['"])(.*?)\1)?/);
+	if (fileEnv) return fileEnv[2] ?? trimmedBase;
+
+	const ensure = head.match(/_ENV\s*=\s*ensure_env\s*\(\s*(['"])(.*?)\1/);
+	if (ensure) return ensure[2];
+
+	return undefined;
+}
+
+async function listSisEnvFiles(
+	moduleDir: string,
+	envKey: string,
+	token: vscode.CancellationToken,
+): Promise<vscode.Uri[]> {
+	const found = new Map<string, vscode.Uri>();
+	const exclude = '**/node_modules/**';
+
+	const patterns = [
+		`resources/Lua state/${moduleDir}/**/${envKey}.lua`,
+		`resources/Lua state/${moduleDir}/**/@${envKey}.lua`,
+		`resources/Lua state/${moduleDir}/**/~${envKey}.lua`,
+		`Lua state/${moduleDir}/**/${envKey}.lua`,
+		`Lua state/${moduleDir}/**/@${envKey}.lua`,
+		`Lua state/${moduleDir}/**/~${envKey}.lua`,
+	];
+
+	const folders = vscode.workspace.workspaceFolders ?? [];
+	for (const folder of folders) {
+		for (const pattern of patterns) {
+			if (token.isCancellationRequested) return Array.from(found.values());
+			const include = new vscode.RelativePattern(folder, pattern);
+			let uris: vscode.Uri[] = [];
+			try {
+				uris = await vscode.workspace.findFiles(include, exclude, 32, token);
+			} catch {
+				continue;
+			}
+			for (const uri of uris) found.set(uri.toString(), uri);
+		}
+	}
+
+	return Array.from(found.values());
+}
+
+async function tryResolveSisEnvMemberDefinition(
+	modulePrefix: string,
+	envKey: string,
+	memberName: string | undefined,
+	token: vscode.CancellationToken,
+): Promise<vscode.Location[] | undefined> {
+	const moduleDir = SIS_MODULE_PREFIX_TO_DIR[modulePrefix];
+	if (!moduleDir) return undefined;
+
+	const candidates = await listSisEnvFiles(moduleDir, envKey, token);
+	if (candidates.length === 0) return undefined;
+
+	for (const uri of candidates) {
+		if (token.isCancellationRequested) return undefined;
+
+		let doc: vscode.TextDocument;
+		try {
+			doc = await vscode.workspace.openTextDocument(uri);
+		} catch {
+			continue;
+		}
+
+		const base = stripSisLuaEnvPrefix(path.parse(uri.fsPath).name);
+		const envName = detectSisEnvOverrideName(doc.getText(), base);
+		if (envName !== envKey) continue;
+
+		if (!memberName) {
+			return [new vscode.Location(uri, new vscode.Position(0, 0))];
+		}
+
+		const offsets = findSisLuaUnqualifiedDefinitionOffsets(doc.getText(), memberName);
+		if (offsets.length === 0) continue;
+
+		return offsets.map((off) => new vscode.Location(uri, doc.positionAt(off)));
+	}
+
+	return undefined;
+}
+
+function looksLikeSisEnvOverrideFile(text: string): boolean {
+	const lines = text.split(/\r?\n/);
+	const head = lines
+		.slice(0, 40)
+		.filter((l) => !l.trimStart().startsWith('--'))
+		.join('\n');
+	return /_ENV\s*=/.test(head);
+}
+
+async function listLuaFilesWithRipgrep(
+	cwd: string,
+	pattern: string,
+	token: vscode.CancellationToken,
+): Promise<vscode.Uri[] | undefined> {
+	return await new Promise<vscode.Uri[] | undefined>((resolve) => {
+		let child: child_process.ChildProcessWithoutNullStreams | undefined;
+		try {
+			child = child_process.spawn('rg', ['--files-with-matches', '--regexp', pattern, '--glob', '*.lua'], { cwd });
+		} catch {
+			resolve(undefined);
+			return;
+		}
+
+		let out = '';
+
+		const stop = (): void => {
+			if (!child || child.killed) return;
+			try {
+				child.kill();
+			} catch {
+				// ignore
+			}
+		};
+
+		const onCancel = () => stop();
+		token.onCancellationRequested(onCancel);
+
+		child.on('error', (err: any) => {
+			if (err?.code === 'ENOENT') {
+				resolve(undefined);
+				return;
+			}
+			resolve(undefined);
+		});
+
+		child.stdout.on('data', (chunk: Buffer) => {
+			out += chunk.toString('utf8');
+		});
+
+		child.on('close', (code) => {
+			if (typeof code === 'number' && code !== 0 && code !== 1) {
+				L.trace('rg (files-with-matches) exited with code', code);
+			}
+
+			const uris: vscode.Uri[] = [];
+			for (const line of out.split(/\r?\n/)) {
+				const rel = line.trim();
+				if (!rel) continue;
+				const full = path.isAbsolute(rel) ? rel : path.join(cwd, rel);
+				uris.push(vscode.Uri.file(full));
+			}
+
+			resolve(uris);
+		});
+	});
+}
+
+async function tryResolveSisModuleFieldDefinition(
+	modulePrefix: string,
+	name: string,
+	token: vscode.CancellationToken,
+): Promise<vscode.Location[] | undefined> {
+	const moduleDir = SIS_MODULE_PREFIX_TO_DIR[modulePrefix];
+	if (!moduleDir) return undefined;
+
+	const results: vscode.Location[] = [];
+	const seen = new Set<string>();
+	const add = (loc: vscode.Location): void => {
+		const key = `${loc.uri.toString()}#${loc.range.start.line}:${loc.range.start.character}`;
+		if (seen.has(key)) return;
+		seen.add(key);
+		results.push(loc);
+	};
+
+	const folders = vscode.workspace.workspaceFolders ?? [];
+	const decoder = new TextDecoder('utf-8');
+
+	for (const folder of folders) {
+		if (token.isCancellationRequested) break;
+
+		const dirCandidates = [
+			path.join(folder.uri.fsPath, 'resources', 'Lua state', moduleDir),
+			path.join(folder.uri.fsPath, 'Lua state', moduleDir),
+		].filter((p) => {
+			try {
+				return fs.existsSync(p);
+			} catch {
+				return false;
+			}
+		});
+
+		for (const dirPath of dirCandidates) {
+			if (token.isCancellationRequested) break;
+
+			const rgUris = await listLuaFilesWithRipgrep(dirPath, `\\b${escapeRegExp(name)}\\b`, token);
+			let fileUris: vscode.Uri[] = [];
+
+			if (rgUris) {
+				fileUris = rgUris;
+			} else {
+				const include = new vscode.RelativePattern(vscode.Uri.file(dirPath), '**/*.lua');
+				try {
+					fileUris = await vscode.workspace.findFiles(include, '**/node_modules/**', undefined, token);
+				} catch {
+					fileUris = [];
+				}
+			}
+
+			for (const uri of fileUris) {
+				if (token.isCancellationRequested) break;
+				if (results.length >= MAX_WORKSPACE_RESULTS) break;
+
+				let bytes: Uint8Array;
+				try {
+					bytes = await vscode.workspace.fs.readFile(uri);
+				} catch {
+					continue;
+				}
+
+				const text = decoder.decode(bytes);
+				if (looksLikeSisEnvOverrideFile(text)) continue;
+
+				const offsets = findSisLuaUnqualifiedDefinitionOffsets(text, name);
+				if (offsets.length === 0) continue;
+
+				let doc: vscode.TextDocument;
+				try {
+					doc = await vscode.workspace.openTextDocument(uri);
+				} catch {
+					continue;
+				}
+
+				for (const off of offsets) {
+					add(new vscode.Location(uri, doc.positionAt(off)));
+					if (results.length >= MAX_WORKSPACE_RESULTS) break;
+				}
+			}
+		}
+	}
+
+	return results.length > 0 ? results : undefined;
+}
+
+function tryLocalSymbolDefinition(
+	document: vscode.TextDocument,
+	position: vscode.Position,
+	name: string,
+): vscode.Definition | undefined {
+	const text = document.getText();
+	const cutoff = document.offsetAt(position);
+	const localOff = findSisLuaLocalDefinitionOffset(text, cutoff, name);
+	if (typeof localOff === 'number') {
+		return new vscode.Location(document.uri, document.positionAt(localOff));
+	}
+
+	const offsets = findSisLuaUnqualifiedDefinitionOffsets(text, name);
+	if (offsets.length > 0) return offsets.map((off) => new vscode.Location(document.uri, document.positionAt(off)));
+
+	return undefined;
+}
+
 function scanDocumentForDefinitions(
 	document: vscode.TextDocument,
 	luaChainRegex: string,
@@ -204,12 +527,13 @@ function scanDocumentForDefinitions(
 	const results: vscode.Location[] = [];
 	const functionRe = new RegExp(`\\bfunction\\s+${luaChainRegex}\\s*\\(`);
 	const assignRe = new RegExp(`\\b${luaChainRegex}\\s*=\\s*(?:weakMemoize\\d+\\s*\\(\\s*)?function\\s*\\(`);
+	const valueAssignRe = new RegExp(`\\b${luaChainRegex}\\s*=`);
 
 	for (let i = 0; i < document.lineCount; i++) {
 		const line = document.lineAt(i).text;
 		if (!line || isProbablyCommentLine(line)) continue;
 
-		if (functionRe.test(line) || assignRe.test(line)) {
+		if (functionRe.test(line) || assignRe.test(line) || valueAssignRe.test(line)) {
 			results.push(new vscode.Location(document.uri, new vscode.Position(i, 0)));
 		}
 	}
@@ -379,6 +703,7 @@ async function findDefinitionsInWorkspace(
 	const patterns = [
 		`\\bfunction\\s+${luaChainRegex}\\s*\\(`,
 		`\\b${luaChainRegex}\\s*=\\s*(?:weakMemoize\\d+\\s*\\(\\s*)?function\\s*\\(`,
+		`\\b${luaChainRegex}\\s*=`,
 	];
 
 	for (const pattern of patterns) {
@@ -395,8 +720,47 @@ class LuaDefinitionProvider implements vscode.DefinitionProvider {
 		position: vscode.Position,
 		token: vscode.CancellationToken,
 	): Promise<vscode.Definition | undefined> {
+		const localCandidate = getLuaIdentifierAtPosition(document, position);
+		if (localCandidate && !localCandidate.precededByAccessor) {
+			// Prefer locals/upvalues even when used as the base of a member chain
+			// (e.g. `ship.empire` should jump to the `ship` loop var / param).
+			const text = document.getText();
+			const cutoff = document.offsetAt(position);
+
+			const localOff = findSisLuaLocalDefinitionOffset(text, cutoff, localCandidate.name);
+			if (typeof localOff === 'number') {
+				return new vscode.Location(document.uri, document.positionAt(localOff));
+			}
+
+			// `_ENV` is an implicit upvalue in Lua 5.2 chunks; treat the nearest
+			// assignment as its "definition" for navigation purposes.
+			if (localCandidate.name === '_ENV') {
+				const offs = findSisLuaUnqualifiedDefinitionOffsets(text, '_ENV').filter((off) => off < cutoff);
+				if (offs.length > 0) {
+					const best = offs.reduce((a, b) => (a > b ? a : b));
+					return new vscode.Location(document.uri, document.positionAt(best));
+				}
+			}
+		}
+
 		const chain = getLuaIdentifierChainAtPosition(document, position);
 		if (!chain) return undefined;
+
+		const parts = splitLuaChainParts(chain.text);
+		if (parts.length === 1) {
+			const local = tryLocalSymbolDefinition(document, position, parts[0]);
+			if (local) return local;
+		}
+
+		if (parts.length === 2 && SIS_MODULE_PREFIX_TO_DIR[parts[0]]) {
+			const envHit = await tryResolveSisEnvMemberDefinition(parts[0], parts[1], undefined, token);
+			if (envHit) return envHit;
+		}
+
+		if (parts.length === 3 && SIS_MODULE_PREFIX_TO_DIR[parts[0]]) {
+			const envHit = await tryResolveSisEnvMemberDefinition(parts[0], parts[1], parts[2], token);
+			if (envHit) return envHit;
+		}
 
 		const chainRegex = luaChainToRegex(chain.text);
 		const localHits = scanDocumentForDefinitions(document, chainRegex);
@@ -404,6 +768,11 @@ class LuaDefinitionProvider implements vscode.DefinitionProvider {
 
 		const runtime = await tryRuntimeDefinition(chain.expressionText, token);
 		if (runtime) return runtime;
+
+		if (parts.length === 2 && SIS_MODULE_PREFIX_TO_DIR[parts[0]]) {
+			const moduleHit = await tryResolveSisModuleFieldDefinition(parts[0], parts[1], token);
+			if (moduleHit) return moduleHit;
+		}
 
 		const hits = await findDefinitionsInWorkspace(chainRegex, token);
 		if (hits.length > 0) return hits;

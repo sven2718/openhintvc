@@ -4,7 +4,7 @@ This extension is your one-stop shop for Stars in Shadow development utilities! 
 
 - Lua debugger: An evolution of devcat's excellent [lua debugger](https://github.com/devcat-studio/VSCodeLuaDebug), tweaked to work better with SiS's quirky runtime enviornement.
 - OpenHint server:  A tiny integrated server that allows your running copy of Stars in Shadow to open files in VS Code.
-- Lua go-to-definition: A lightweight `Ctrl+Click` / `F12` implementation for SiS Lua that uses workspace search heuristics, and (when paused in the debugger) runtime `debug.getinfo` to jump to the exact definition line.
+- Lua go-to-definition: A lightweight `Ctrl+Click` / `F12` implementation for SiS Lua that understands common dialect patterns (locals/params even when used as the base of a member chain like `ship.empire`, module `_ENV`, `create_file_env`, `ensure_property_env`), plus workspace search heuristics and (when paused in the debugger) runtime `debug.getinfo` to jump to the exact definition line.
 - Lua formatter: Minimal SiS-safe Lua formatting (default: whitespace normalization; optional: simple re-indent).
 
 ## Debugging (Lua / SiS)
