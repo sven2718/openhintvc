@@ -6,6 +6,7 @@ This extension is your one-stop shop for Stars in Shadow development utilities! 
 - OpenHint server:  A tiny integrated server that allows your running copy of Stars in Shadow to open files in VS Code.
 - Lua go-to-definition: A lightweight `Ctrl+Click` / `F12` implementation for SiS Lua that understands common dialect patterns (locals/params even when used as the base of a member chain like `ship.empire`, module `_ENV`, `create_file_env`, `ensure_property_env`), plus workspace search heuristics and (when paused in the debugger) runtime `debug.getinfo` to jump to the exact definition line.
 - Lua formatter: Minimal SiS-safe Lua formatting (default: whitespace normalization; optional: simple re-indent).
+- Lua syntax diagnostics (prototype): Uses a background `sis_headless` process to run the real SiS Lua parser over open buffers and report syntax errors (dialect-aware).
 
 ## Debugging (Lua / SiS)
 
@@ -39,6 +40,13 @@ This extension provides a Lua formatter that avoids “fixing” SiS Lua dialect
 - Configure behavior via `sisDev.luaFormatter.mode`:
   - `whitespace` (default): converts leading tabs to 2 spaces and otherwise preserves indentation (including whitespace-only lines); does not re-indent blocks (safest for SiS visual-indent conventions).
   - `simple`: re-indents using lightweight block keywords + `{}`, but preserves visually-shallow `| function` blocks (notably `UI_File | function(_ENV)`) and avoids flattening multiline continuations (`(...)`, `[...]`, and lines following a trailing `=`).
+
+## Syntax diagnostics (SiS Lua) (prototype)
+
+This extension can ask the real SiS Lua parser (via `sis_headless`) to syntax-check your buffers and surface errors as editor diagnostics.
+
+- Enable/disable: `sisDev.luaSyntaxDiagnostics.enabled`
+- Override executable path (optional): `sisDev.luaSyntaxDiagnostics.sisHeadlessPath`
 
 ## Code Provenance
 

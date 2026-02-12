@@ -5,6 +5,7 @@ import Logger from './utils/Logger';
 import StatusBarItem from './lib/StatusBarItem';
 import { registerLuaDefinitionProvider } from './features/LuaDefinitionProvider';
 import { registerLuaFormattingProvider } from './features/LuaFormattingProvider';
+import { registerLuaDiagnosticsProvider } from './features/LuaDiagnosticsProvider';
 
 const L = Logger.getLogger('extension');
 
@@ -122,6 +123,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   registerLuaDefinitionProvider(context);
   registerLuaFormattingProvider(context);
+  registerLuaDiagnosticsProvider(context);
 }
 
 export function deactivate() {

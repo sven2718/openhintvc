@@ -56,6 +56,16 @@
                     ],
                     "default": "whitespace",
                     "description": "Lua formatter mode. 'whitespace' only normalizes leading tabs (2 spaces) and otherwise preserves indentation (including whitespace-only lines); 'simple' re-indents using lightweight Lua block keywords + `{}`, while preserving visually-shallow `| function` blocks and not flattening multiline continuations (`(...)`, `[...]`, and lines following a trailing `=`)."
+                },
+                "sisDev.luaSyntaxDiagnostics.enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable SiS Lua syntax diagnostics using a background `sis_headless` process (dialect-aware)."
+                },
+                "sisDev.luaSyntaxDiagnostics.sisHeadlessPath": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Path to `sis_headless` executable used for syntax diagnostics. Leave blank to auto-detect from the workspace."
                 }
             }
         },
