@@ -73,6 +73,41 @@ local function handle_request(req)
     }
   end
 
+  if method == 'tokenize' then
+    local text = params.text
+    local chunkname = params.chunkname
+
+    if type(text) ~= 'string' then
+      error('tokenize requires params.text (string)')
+    end
+    if chunkname ~= nil and type(chunkname) ~= 'string' then
+      error('tokenize params.chunkname must be a string (or nil)')
+    end
+
+    if type(_G.sis_lua_tokenize) ~= 'function' then
+      return {
+        id = id,
+        ok = false,
+        error = { message = 'sis_lua_tokenize not available in this sis_headless build' },
+      }
+    end
+
+    local ok, tokens_or_err = pcall(_G.sis_lua_tokenize, text, chunkname)
+    if not ok then
+      return {
+        id = id,
+        ok = false,
+        error = { message = tostring(tokens_or_err) },
+      }
+    end
+
+    return {
+      id = id,
+      ok = true,
+      result = { tokens = tokens_or_err },
+    }
+  end
+
   return {
     id = id,
     ok = false,
