@@ -16,7 +16,6 @@ const LUA_KEYWORDS = new Set([
 	'end',
 	'false',
 	'for',
-	'foreach',
 	'function',
 	'goto',
 	'if',
@@ -295,7 +294,7 @@ export function findSisLuaLocalDefinitionOffsetFromTokens(tokens: SisLuaToken[],
 			continue;
 		}
 
-		if (tok.text === 'for' || tok.text === 'foreach') {
+		if (tok.text === 'for') {
 			pushBlock('for');
 
 			let j = i + 1;
