@@ -42,6 +42,15 @@ function findLuaStateCwd(workspaceFolderPath: string): string | undefined {
 	if (dirExists(path.join(workspaceFolderPath, 'Lua state'))) {
 		return workspaceFolderPath;
 	}
+
+	// Common mod-kit layout: the workspace itself is `Lua state/`.
+	if (path.basename(workspaceFolderPath).toLowerCase() === 'lua state') {
+		const parentDir = path.dirname(workspaceFolderPath);
+		if (dirExists(path.join(parentDir, 'Lua state'))) {
+			return parentDir;
+		}
+	}
+
 	const resourcesDir = path.join(workspaceFolderPath, 'resources');
 	if (dirExists(path.join(resourcesDir, 'Lua state'))) {
 		return resourcesDir;
@@ -58,11 +67,13 @@ function findSisHeadlessExecutable(workspaceFolderPath: string): string | undefi
 	const candidates: string[] = [];
 	if (process.platform === 'win32') {
 		for (const root of roots) {
+			candidates.push(path.join(root, 'sis_headless.exe'));
 			candidates.push(path.join(root, 'x64', 'Release', 'sis_headless.exe'));
 			candidates.push(path.join(root, 'x64', 'Debug', 'sis_headless.exe'));
 		}
 	} else {
 		for (const root of roots) {
+			candidates.push(path.join(root, 'sis_headless'));
 			candidates.push(path.join(root, 'linux', 'build', 'sis_headless'));
 			candidates.push(path.join(root, 'build', 'sis_headless'));
 		}

@@ -5,6 +5,11 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-02-12
+- Lua syntax diagnostics (prototype): dialect-aware syntax checking via background `sis_headless` (snapshotted to a temp dir at startup to avoid build locks).
+- Lua go-to-definition: when `sis_headless` is available, local-scope analysis can use the real SiS Lua lexer via the background process (falls back to a lightweight TypeScript tokenizer).
+- Lua syntax diagnostics: auto-detect `sis_headless.exe` from mod-kit workspaces where the folder is `Lua state/`.
+
 ## [0.1.4] - 2026-02-10
 - Lua go-to-definition: resolve locals/params/upvalues (including when used as the base of a member chain like `ship.empire`), with improved file-local definition scanning.
 
