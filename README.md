@@ -47,6 +47,7 @@ This extension can ask the real SiS Lua parser (via `sis_headless`) to syntax-ch
 
 - Enable/disable: `sisDev.luaSyntaxDiagnostics.enabled`
 - Override executable path (optional): `sisDev.luaSyntaxDiagnostics.sisHeadlessPath`
+- Note: on startup, the extension snapshots `sis_headless` into a temp directory so you can rebuild the original binary without file-lock contention; reload the VS Code window to pick up a new build.
 
 ## Code Provenance
 

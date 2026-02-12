@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as child_process from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
 import Logger from '../utils/Logger';
@@ -80,6 +81,86 @@ function findSisHeadlessExecutable(workspaceFolderPath: string): string | undefi
 	return undefined;
 }
 
+function isDynamicLibraryFilename(name: string): boolean {
+	const lower = name.toLowerCase();
+	if (process.platform === 'win32') return lower.endsWith('.dll');
+	if (process.platform === 'darwin') return lower.endsWith('.dylib');
+	return lower.endsWith('.so') || lower.includes('.so.');
+}
+
+function copySiblingDynamicLibraries(sourceExecutable: string, destDir: string): number {
+	const sourceDir = path.dirname(sourceExecutable);
+
+	let entries: fs.Dirent[];
+	try {
+		entries = fs.readdirSync(sourceDir, { withFileTypes: true });
+	} catch {
+		return 0;
+	}
+
+	let copied = 0;
+	for (const entry of entries) {
+		if (!entry.isFile()) continue;
+
+		const name = entry.name;
+		if (!isDynamicLibraryFilename(name)) continue;
+
+		const src = path.join(sourceDir, name);
+		const dst = path.join(destDir, name);
+		try {
+			fs.copyFileSync(src, dst);
+			copied++;
+		} catch {}
+	}
+
+	return copied;
+}
+
+type SisHeadlessSnapshot = {
+	sourceExecutable: string;
+	executable: string;
+	tempDir: string;
+};
+
+function snapshotSisHeadlessExecutable(sourceExecutable: string): SisHeadlessSnapshot | undefined {
+	try {
+		const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sis-headless-syntax-'));
+		const executable = path.join(tempDir, path.basename(sourceExecutable));
+		fs.copyFileSync(sourceExecutable, executable);
+
+		try {
+			// Preserve + ensure executable bit on POSIX.
+			const mode = fs.statSync(sourceExecutable).mode;
+			fs.chmodSync(executable, mode | 0o111);
+		} catch {}
+
+		const copiedLibs = copySiblingDynamicLibraries(sourceExecutable, tempDir);
+		L.trace('snapshotted sis_headless for syntax diagnostics', {
+			sourceExecutable,
+			executable,
+			copiedLibs,
+		});
+
+		return { sourceExecutable, executable, tempDir };
+	} catch (err) {
+		L.trace('failed to snapshot sis_headless', err);
+		return undefined;
+	}
+}
+
+function findSisHeadlessExecutableAtStartup(): string | undefined {
+	const configured = getConfiguredSisHeadlessPath();
+	if (configured && fileExists(configured)) return configured;
+
+	const folders = vscode.workspace.workspaceFolders ?? [];
+	for (const folder of folders) {
+		const exe = findSisHeadlessExecutable(folder.uri.fsPath);
+		if (exe) return exe;
+	}
+
+	return undefined;
+}
+
 type PendingRequest = {
 	resolve: (value: any) => void;
 	reject: (err: Error) => void;
@@ -88,6 +169,7 @@ type PendingRequest = {
 
 class SisLuaSyntaxServer implements vscode.Disposable {
 	private readonly scriptPath: string;
+	private readonly snapshot: SisHeadlessSnapshot | undefined;
 	private child: child_process.ChildProcessWithoutNullStreams | undefined;
 	private rl: readline.Interface | undefined;
 	private nextId = 1;
@@ -96,10 +178,29 @@ class SisLuaSyntaxServer implements vscode.Disposable {
 
 	constructor(private readonly context: vscode.ExtensionContext) {
 		this.scriptPath = this.context.asAbsolutePath(SERVER_SCRIPT_REL_PATH);
+
+		// Snapshot `sis_headless` once at extension startup so developers can rebuild
+		// the original binary without fighting file locks.
+		const sourceExecutable = findSisHeadlessExecutableAtStartup();
+		if (!sourceExecutable) {
+			L.trace('sis_headless not found at startup; SiS Lua syntax diagnostics disabled until VS Code restart');
+			this.snapshot = undefined;
+		} else {
+			this.snapshot = snapshotSisHeadlessExecutable(sourceExecutable);
+			if (!this.snapshot) {
+				L.trace('sis_headless snapshot failed; SiS Lua syntax diagnostics disabled until VS Code restart');
+			}
+		}
 	}
 
 	dispose(): void {
 		this.stop();
+
+		if (this.snapshot?.tempDir) {
+			try {
+				fs.rmSync(this.snapshot.tempDir, { recursive: true, force: true });
+			} catch {}
+		}
 	}
 
 	private rejectAllPending(err: Error): void {
@@ -192,6 +293,9 @@ class SisLuaSyntaxServer implements vscode.Disposable {
 	}
 
 	private ensureStartedForDocument(document: vscode.TextDocument): boolean {
+		const executable = this.snapshot?.executable;
+		if (!executable) return false;
+
 		const folder = vscode.workspace.getWorkspaceFolder(document.uri);
 		const folderPath = folder?.uri?.fsPath ?? vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
 		if (!folderPath) return false;
@@ -199,8 +303,8 @@ class SisLuaSyntaxServer implements vscode.Disposable {
 		const cwd = findLuaStateCwd(folderPath);
 		if (!cwd) return false;
 
-		const executable = findSisHeadlessExecutable(folderPath);
-		if (!executable) return false;
+		// Server script depends on `resources/debuggee/dkjson.lua`.
+		if (!fileExists(path.join(cwd, 'debuggee', 'dkjson.lua'))) return false;
 
 		if (this.child && this.startedFor?.executable === executable && this.startedFor?.cwd === cwd) {
 			return true;

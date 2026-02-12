@@ -60,12 +60,12 @@
                 "sisDev.luaSyntaxDiagnostics.enabled": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Enable SiS Lua syntax diagnostics using a background `sis_headless` process (dialect-aware)."
+                    "description": "Enable SiS Lua syntax diagnostics using a background `sis_headless` process (dialect-aware). On startup, the extension snapshots the executable into a temp directory to avoid locking the build output."
                 },
                 "sisDev.luaSyntaxDiagnostics.sisHeadlessPath": {
                     "type": "string",
                     "default": "",
-                    "description": "Path to `sis_headless` executable used for syntax diagnostics. Leave blank to auto-detect from the workspace."
+                    "description": "Path to `sis_headless` executable used for syntax diagnostics. Leave blank to auto-detect from the workspace. Note: resolved and snapshotted on extension startup; reload the VS Code window to pick up a new build."
                 }
             }
         },
