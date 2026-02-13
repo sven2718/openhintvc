@@ -3,8 +3,10 @@ import * as path from 'node:path';
 import Server from './lib/Server';
 import Logger from './utils/Logger';
 import StatusBarItem from './lib/StatusBarItem';
+import { SisLuaSyntaxServer } from './lib/SisLuaSyntaxServer';
 import { registerLuaDefinitionProvider } from './features/LuaDefinitionProvider';
 import { registerLuaFormattingProvider } from './features/LuaFormattingProvider';
+import { registerLuaDiagnosticsProvider } from './features/LuaDiagnosticsProvider';
 
 const L = Logger.getLogger('extension');
 
@@ -120,8 +122,12 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.debug.registerDebugAdapterDescriptorFactory('lua', new LuaDebugAdapterDescriptorFactory(context)),
   );
 
-  registerLuaDefinitionProvider(context);
+  const sisLuaSyntaxServer = new SisLuaSyntaxServer(context);
+  context.subscriptions.push(sisLuaSyntaxServer);
+
+  registerLuaDefinitionProvider(context, sisLuaSyntaxServer);
   registerLuaFormattingProvider(context);
+  registerLuaDiagnosticsProvider(context, sisLuaSyntaxServer);
 }
 
 export function deactivate() {

@@ -3,7 +3,12 @@ import * as child_process from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Logger from '../utils/Logger';
-import { findSisLuaLocalDefinitionOffset, findSisLuaUnqualifiedDefinitionOffsets } from '../lib/SisLua';
+import {
+	findSisLuaLocalDefinitionOffset,
+	findSisLuaLocalDefinitionOffsetFromTokens,
+	findSisLuaUnqualifiedDefinitionOffsets,
+} from '../lib/SisLua';
+import { SisLuaSyntaxServer } from '../lib/SisLuaSyntaxServer';
 
 const L = Logger.getLogger('LuaDefinitionProvider');
 
@@ -502,24 +507,6 @@ async function tryResolveSisModuleFieldDefinition(
 	return results.length > 0 ? results : undefined;
 }
 
-function tryLocalSymbolDefinition(
-	document: vscode.TextDocument,
-	position: vscode.Position,
-	name: string,
-): vscode.Definition | undefined {
-	const text = document.getText();
-	const cutoff = document.offsetAt(position);
-	const localOff = findSisLuaLocalDefinitionOffset(text, cutoff, name);
-	if (typeof localOff === 'number') {
-		return new vscode.Location(document.uri, document.positionAt(localOff));
-	}
-
-	const offsets = findSisLuaUnqualifiedDefinitionOffsets(text, name);
-	if (offsets.length > 0) return offsets.map((off) => new vscode.Location(document.uri, document.positionAt(off)));
-
-	return undefined;
-}
-
 function scanDocumentForDefinitions(
 	document: vscode.TextDocument,
 	luaChainRegex: string,
@@ -715,6 +702,30 @@ async function findDefinitionsInWorkspace(
 }
 
 class LuaDefinitionProvider implements vscode.DefinitionProvider {
+	constructor(private readonly sisLuaSyntaxServer: SisLuaSyntaxServer | undefined) {}
+
+	private async findLocalDefinitionOffset(
+		document: vscode.TextDocument,
+		cutoff: number,
+		name: string,
+	): Promise<number | undefined> {
+		if (this.sisLuaSyntaxServer) {
+			try {
+				const tokens = await this.sisLuaSyntaxServer.tokenize(document, false);
+				if (tokens) {
+					const trimmed = tokens.filter((t) => typeof t.offset === 'number' && t.offset < cutoff);
+					const off = findSisLuaLocalDefinitionOffsetFromTokens(trimmed, name);
+					if (typeof off === 'number') return off;
+				}
+			} catch (err) {
+				L.trace('sis lua tokenize failed; falling back to TS tokenizer', err);
+			}
+		}
+
+		const text = document.getText();
+		return findSisLuaLocalDefinitionOffset(text, cutoff, name);
+	}
+
 	async provideDefinition(
 		document: vscode.TextDocument,
 		position: vscode.Position,
@@ -724,10 +735,9 @@ class LuaDefinitionProvider implements vscode.DefinitionProvider {
 		if (localCandidate && !localCandidate.precededByAccessor) {
 			// Prefer locals/upvalues even when used as the base of a member chain
 			// (e.g. `ship.empire` should jump to the `ship` loop var / param).
-			const text = document.getText();
 			const cutoff = document.offsetAt(position);
 
-			const localOff = findSisLuaLocalDefinitionOffset(text, cutoff, localCandidate.name);
+			const localOff = await this.findLocalDefinitionOffset(document, cutoff, localCandidate.name);
 			if (typeof localOff === 'number') {
 				return new vscode.Location(document.uri, document.positionAt(localOff));
 			}
@@ -735,6 +745,7 @@ class LuaDefinitionProvider implements vscode.DefinitionProvider {
 			// `_ENV` is an implicit upvalue in Lua 5.2 chunks; treat the nearest
 			// assignment as its "definition" for navigation purposes.
 			if (localCandidate.name === '_ENV') {
+				const text = document.getText();
 				const offs = findSisLuaUnqualifiedDefinitionOffsets(text, '_ENV').filter((off) => off < cutoff);
 				if (offs.length > 0) {
 					const best = offs.reduce((a, b) => (a > b ? a : b));
@@ -748,8 +759,19 @@ class LuaDefinitionProvider implements vscode.DefinitionProvider {
 
 		const parts = splitLuaChainParts(chain.text);
 		if (parts.length === 1) {
-			const local = tryLocalSymbolDefinition(document, position, parts[0]);
-			if (local) return local;
+			const cutoff = document.offsetAt(position);
+			const name = parts[0];
+
+			const localOff = await this.findLocalDefinitionOffset(document, cutoff, name);
+			if (typeof localOff === 'number') {
+				return new vscode.Location(document.uri, document.positionAt(localOff));
+			}
+
+			const text = document.getText();
+			const offsets = findSisLuaUnqualifiedDefinitionOffsets(text, name);
+			if (offsets.length > 0) {
+				return offsets.map((off) => new vscode.Location(document.uri, document.positionAt(off)));
+			}
 		}
 
 		if (parts.length === 2 && SIS_MODULE_PREFIX_TO_DIR[parts[0]]) {
@@ -787,8 +809,8 @@ class LuaDefinitionProvider implements vscode.DefinitionProvider {
 	}
 }
 
-export function registerLuaDefinitionProvider(context: vscode.ExtensionContext): void {
+export function registerLuaDefinitionProvider(context: vscode.ExtensionContext, server: SisLuaSyntaxServer): void {
 	L.trace('registerLuaDefinitionProvider');
-	const provider = new LuaDefinitionProvider();
+	const provider = new LuaDefinitionProvider(server);
 	context.subscriptions.push(vscode.languages.registerDefinitionProvider({ language: 'lua' }, provider));
 }

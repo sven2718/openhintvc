@@ -225,9 +225,7 @@ export function tokenizeSisLua(text: string, maxOffset: number = text.length): S
 type BlockKind = 'function' | 'if' | 'for' | 'while' | 'repeat' | 'do';
 type Block = { kind: BlockKind };
 
-export function findSisLuaLocalDefinitionOffset(text: string, cutoffOffset: number, identifier: string): number | undefined {
-	const tokens = tokenizeSisLua(text, cutoffOffset);
-
+export function findSisLuaLocalDefinitionOffsetFromTokens(tokens: SisLuaToken[], identifier: string): number | undefined {
 	const scopes: Array<Map<string, number>> = [new Map()];
 	const blocks: Block[] = [];
 
@@ -402,6 +400,11 @@ export function findSisLuaLocalDefinitionOffset(text: string, cutoffOffset: numb
 	}
 
 	return undefined;
+}
+
+export function findSisLuaLocalDefinitionOffset(text: string, cutoffOffset: number, identifier: string): number | undefined {
+	const tokens = tokenizeSisLua(text, cutoffOffset);
+	return findSisLuaLocalDefinitionOffsetFromTokens(tokens, identifier);
 }
 
 function isAssignmentOp(token: SisLuaToken | undefined): boolean {
