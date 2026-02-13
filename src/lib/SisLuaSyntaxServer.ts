@@ -128,8 +128,9 @@ type SisHeadlessSnapshot = {
 };
 
 function snapshotSisHeadlessExecutable(sourceExecutable: string): SisHeadlessSnapshot | undefined {
+	let tempDir: string | undefined;
 	try {
-		const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sis-headless-syntax-'));
+		tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sis-headless-syntax-'));
 		const executable = path.join(tempDir, path.basename(sourceExecutable));
 		fs.copyFileSync(sourceExecutable, executable);
 
@@ -148,6 +149,11 @@ function snapshotSisHeadlessExecutable(sourceExecutable: string): SisHeadlessSna
 
 		return { sourceExecutable, executable, tempDir };
 	} catch (err) {
+		if (tempDir) {
+			try {
+				fs.rmSync(tempDir, { recursive: true, force: true });
+			} catch {}
+		}
 		L.trace('failed to snapshot sis_headless', err);
 		return undefined;
 	}
@@ -190,6 +196,8 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 	private nextId = 1;
 	private pending = new Map<number, PendingRequest>();
 	private startedFor: { executable: string; cwd: string } | undefined;
+	private disposed = false;
+	private snapshotDeleted = false;
 
 	constructor(private readonly context: vscode.ExtensionContext) {
 		this.scriptPath = this.context.asAbsolutePath(SERVER_SCRIPT_REL_PATH);
@@ -209,13 +217,9 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 	}
 
 	dispose(): void {
+		this.disposed = true;
 		this.stop();
-
-		if (this.snapshot?.tempDir) {
-			try {
-				fs.rmSync(this.snapshot.tempDir, { recursive: true, force: true });
-			} catch {}
-		}
+		this.tryDeleteSnapshotTempDir();
 	}
 
 	private rejectAllPending(err: Error): void {
@@ -232,18 +236,42 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 			this.rl = undefined;
 		}
 
-		if (this.child) {
+		const child = this.child;
+		this.child = undefined;
+		if (child) {
 			try {
-				this.child.stdin.end();
+				child.stdin.end();
 			} catch {}
 			try {
-				this.child.kill();
+				child.kill();
 			} catch {}
-			this.child = undefined;
+
+			if (this.disposed) {
+				try {
+					child.kill('SIGKILL');
+				} catch {}
+			}
 		}
 
 		this.rejectAllPending(new Error('server stopped'));
 		this.startedFor = undefined;
+	}
+
+	private tryDeleteSnapshotTempDir(): void {
+		if (this.snapshotDeleted) return;
+		const tempDir = this.snapshot?.tempDir;
+		if (!tempDir) {
+			this.snapshotDeleted = true;
+			return;
+		}
+
+		try {
+			fs.rmSync(tempDir, { recursive: true, force: true });
+			this.snapshotDeleted = true;
+			L.trace('deleted sis_headless snapshot temp dir', { tempDir });
+		} catch (err) {
+			L.trace('failed to delete sis_headless snapshot temp dir', { tempDir, err });
+		}
 	}
 
 	private onStdoutLine(line: string): void {
@@ -297,32 +325,49 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 		return { executable, cwd };
 	}
 
-	private start(executable: string, cwd: string): void {
-		this.stop();
-		this.startedFor = { executable, cwd };
+		private start(executable: string, cwd: string): void {
+			this.stop();
+			this.startedFor = { executable, cwd };
 
-		L.trace('starting sis lua syntax server', { executable, cwd, scriptPath: this.scriptPath });
+			L.trace('starting sis lua syntax server', { executable, cwd, scriptPath: this.scriptPath });
 
-		this.child = child_process.spawn(executable, [this.scriptPath], {
-			cwd,
-			stdio: ['pipe', 'pipe', 'pipe'],
-		});
+			const child = child_process.spawn(executable, [this.scriptPath], {
+				cwd,
+				stdio: ['pipe', 'pipe', 'pipe'],
+			});
+			this.child = child;
 
-		this.child.on('exit', (code, signal) => {
-			L.trace('sis lua syntax server exited', { code, signal });
-			this.child = undefined;
-			this.rejectAllPending(new Error('server exited'));
-		});
+			child.on('exit', (code, signal) => {
+				L.trace('sis lua syntax server exited', { code, signal });
 
-		this.child.on('error', (err) => {
-			L.trace('sis lua syntax server error', err);
-			this.child = undefined;
-			this.rejectAllPending(err instanceof Error ? err : new Error(String(err)));
-		});
+				if (this.child === child) {
+					this.child = undefined;
+					this.startedFor = undefined;
+					this.rejectAllPending(new Error('server exited'));
+				}
 
-		this.rl = readline.createInterface({ input: this.child.stdout });
-		this.rl.on('line', (line) => this.onStdoutLine(line));
-	}
+				if (this.disposed) {
+					this.tryDeleteSnapshotTempDir();
+				}
+			});
+
+			child.on('error', (err) => {
+				L.trace('sis lua syntax server error', err);
+
+				if (this.child === child) {
+					this.child = undefined;
+					this.startedFor = undefined;
+					this.rejectAllPending(err instanceof Error ? err : new Error(String(err)));
+				}
+
+				if (this.disposed) {
+					this.tryDeleteSnapshotTempDir();
+				}
+			});
+
+			this.rl = readline.createInterface({ input: child.stdout });
+			this.rl.on('line', (line) => this.onStdoutLine(line));
+		}
 
 	private ensureStartedForDocument(document: vscode.TextDocument): boolean {
 		const info = this.getStartInfoForDocument(document);
