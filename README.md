@@ -33,6 +33,8 @@ see issues where stopping the debugger does not quit the game.
 
 This extension contributes Lua breakpoint support, so breakpoints should work normally in `lua` files. If VS Code still refuses to place breakpoints, make sure the file's language mode is set to Lua; as a fallback you can set `debug.allowBreakpointsEverywhere`.
 
+Breakpoint binding in the SiS debuggee is keyed by the script’s path **relative to the debuggee’s starting working directory** (usually your `<workspace>/resources`, set via `workingDirectory` in the launch config). If `workingDirectory` / `sourceBasePath` is wrong (or you’re setting breakpoints in files outside that tree), breakpoints may appear set in VS Code but won’t bind reliably at runtime.
+
 ## Formatting (Lua)
 
 This extension provides a Lua formatter that avoids “fixing” SiS Lua dialect constructs.
