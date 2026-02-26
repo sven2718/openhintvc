@@ -382,7 +382,8 @@ class SisLuaDebugAdapterSession extends DebugSession {
 		response.body.supportsConfigurationDoneRequest = true;
 		response.body.supportsFunctionBreakpoints = false;
 		response.body.supportsConditionalBreakpoints = false;
-		response.body.supportsEvaluateForHovers = false;
+		// Hover values are most reliable via explicit `evaluate` (vs reusing cached Variables view state).
+		response.body.supportsEvaluateForHovers = true;
 		response.body.supportsTerminateRequest = true;
 		response.body.exceptionBreakpointFilters = [];
 		this.sendResponse(response);
