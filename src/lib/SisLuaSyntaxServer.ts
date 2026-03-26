@@ -10,6 +10,7 @@ const L = Logger.getLogger('SisLuaSyntaxServer');
 
 const PROTOCOL_PREFIX = '@@SIS_LUA_SYNTAX@@';
 const SERVER_SCRIPT_REL_PATH = path.join('scripts', 'sis_lua_syntax_server.lua');
+const SYNTAX_SERVER_FLAG = '-syntax-server';
 
 const REQUEST_TIMEOUT_MS = 2000;
 const MAX_TEXT_CHARS = 1024 * 1024;
@@ -331,7 +332,7 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 
 			L.trace('starting sis lua syntax server', { executable, cwd, scriptPath: this.scriptPath });
 
-			const child = child_process.spawn(executable, [this.scriptPath], {
+			const child = child_process.spawn(executable, [SYNTAX_SERVER_FLAG, this.scriptPath], {
 				cwd,
 				stdio: ['pipe', 'pipe', 'pipe'],
 			});
