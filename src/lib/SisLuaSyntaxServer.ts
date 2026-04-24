@@ -1,4 +1,6 @@
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import {
@@ -28,10 +30,14 @@ import Logger from '../utils/Logger';
 //    process. `tokenize()` does NOT go through that chain since it only
 //    reads the current client.
 //
-//  - **No in-TS snapshot of the binary.** `sis_headless -lsp` snapshots
-//    itself into a temp dir on Windows and re-execs before doing
-//    anything expensive, so rebuilds of the original binary are already
-//    safe without client-side copying. See `sis_headless/lsp_mode.cpp`.
+//  - **Stage `sis_headless` to a tempdir before spawning.** Spawning
+//    the canonical exe directly puts a Windows image-load lock on it
+//    for the entire LSP session, which fights `link.exe /OUT:<exe>`
+//    during incremental rebuilds. `stageSisHeadlessForLsp` (below)
+//    copies the exe + sibling DLLs into `%TEMP%/sis_headless_lsp/<key>/`
+//    and returns the staged path; we hand THAT to `LanguageClient`. The
+//    Python launcher under `tools/sis_headless_lsp_launcher.py` does the
+//    same dance for non-VS Code clients (Crush, etc.).
 //
 //  - **Optional startup.** Constructor does not auto-start. The
 //    extension activation layer decides when to `start()` based on
@@ -115,6 +121,138 @@ function findSisHeadlessExecutable(workspaceFolderPath: string): string | undefi
 		if (fileExists(c)) return c;
 	}
 	return undefined;
+}
+
+// -- Tempdir staging --------------------------------------------------------
+//
+// #sis_lua_lsp
+//
+// Mirror of `tools/sis_headless_lsp_launcher.py`: copy `sis_headless` and
+// its sibling DLLs into `%TEMP%/sis_headless_lsp/<key>/` and return the
+// staged path. <key> is a short hash of the source path so two checkouts
+// on the same machine don't collide. We re-stage when the source's
+// `size` + `mtimeMs` no longer match the recorded stamp, and skip the
+// copy otherwise (so warm restarts cost ~one stat call).
+//
+// The canonical exe is never spawned directly, which keeps it free for
+// `link.exe /OUT:<exe>` during incremental rebuilds.
+
+const STAGING_ROOT_NAME = 'sis_headless_lsp';
+const STAGING_SWEEP_AGE_MS = 24 * 60 * 60 * 1000;
+
+function stagingRoot(): string {
+	return path.join(os.tmpdir(), STAGING_ROOT_NAME);
+}
+
+function stagingDirFor(sourceExe: string): string {
+	const key = crypto.createHash('sha1').update(sourceExe).digest('hex').slice(0, 16);
+	return path.join(stagingRoot(), key);
+}
+
+interface StageStamp {
+	size: number;
+	mtimeMs: number;
+}
+
+function readStamp(stampPath: string): StageStamp | undefined {
+	try {
+		const raw = fs.readFileSync(stampPath, 'utf-8');
+		const parsed = JSON.parse(raw) as Partial<StageStamp>;
+		if (typeof parsed.size === 'number' && typeof parsed.mtimeMs === 'number') {
+			return { size: parsed.size, mtimeMs: parsed.mtimeMs };
+		}
+	} catch {
+		// stamp missing or unreadable; treat as stale
+	}
+	return undefined;
+}
+
+// Best-effort cleanup: remove sibling staging dirs whose mtime is older
+// than `STAGING_SWEEP_AGE_MS`. A dir whose exe is currently held open by
+// another LSP child will fail to delete; we silently move on and rely on
+// a future sweep.
+function sweepOldStagingDirs(): void {
+	const root = stagingRoot();
+	let entries: string[];
+	try {
+		entries = fs.readdirSync(root);
+	} catch {
+		return;
+	}
+	const cutoff = Date.now() - STAGING_SWEEP_AGE_MS;
+	for (const entry of entries) {
+		const entryPath = path.join(root, entry);
+		try {
+			if (fs.statSync(entryPath).mtimeMs < cutoff) {
+				fs.rmSync(entryPath, { recursive: true, force: true });
+			}
+		} catch {
+			// leave it for next sweep
+		}
+	}
+}
+
+// Returns the staged exe path on success, or `undefined` if staging
+// failed for any reason (in which case the caller can either fall back
+// to the canonical path or just refuse to start).
+function stageSisHeadlessForLsp(sourceExe: string): string | undefined {
+	const absSource = path.resolve(sourceExe);
+	const stagingDir = stagingDirFor(absSource);
+	const stagedExe = path.join(stagingDir, path.basename(absSource));
+	const stampPath = path.join(stagingDir, 'stamp.json');
+
+	let srcStat: fs.Stats;
+	try {
+		srcStat = fs.statSync(absSource);
+	} catch (err) {
+		L.trace('stageSisHeadlessForLsp: source stat failed', err);
+		return undefined;
+	}
+	const srcStamp: StageStamp = { size: srcStat.size, mtimeMs: srcStat.mtimeMs };
+
+	const cached = readStamp(stampPath);
+	if (cached && cached.size === srcStamp.size && cached.mtimeMs === srcStamp.mtimeMs && fileExists(stagedExe)) {
+		return stagedExe;
+	}
+
+	try {
+		fs.mkdirSync(stagingDir, { recursive: true });
+		fs.copyFileSync(absSource, stagedExe);
+	} catch (err) {
+		L.trace('stageSisHeadlessForLsp: copy failed', err);
+		return undefined;
+	}
+
+	// Copy sibling .dll files. In dev builds there usually aren't any
+	// next to `sis_headless.exe` (DLLs live under `resources/x64/`); in
+	// a production install they're siblings. Best-effort: a missing
+	// sibling DLL is not fatal in -lsp mode, which gates off the
+	// optional runtime integrations that would actually need them.
+	const sourceDir = path.dirname(absSource);
+	let siblings: string[] = [];
+	try {
+		siblings = fs.readdirSync(sourceDir);
+	} catch {
+		// no siblings; that's fine
+	}
+	for (const sibling of siblings) {
+		if (!sibling.toLowerCase().endsWith('.dll')) continue;
+		const src = path.join(sourceDir, sibling);
+		try {
+			if (!fs.statSync(src).isFile()) continue;
+			fs.copyFileSync(src, path.join(stagingDir, sibling));
+		} catch {
+			// best-effort
+		}
+	}
+
+	try {
+		fs.writeFileSync(stampPath, JSON.stringify(srcStamp), 'utf-8');
+	} catch {
+		// non-fatal: a missing stamp just means we'll re-stage next time
+	}
+
+	return stagedExe;
 }
 
 // Startup info for a particular workspace folder. We recompute this on
@@ -227,8 +365,20 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 			if (this.disposed) return;
 		}
 
+		// Stage the canonical exe into a tempdir before handing it to
+		// `LanguageClient`. The image-load lock then lives on the staged
+		// copy, freeing the canonical path for incremental rebuilds. If
+		// staging fails we'd rather be loud than silently fall back to
+		// the canonical path - that would re-introduce the rebuild lock.
+		sweepOldStagingDirs();
+		const stagedExe = stageSisHeadlessForLsp(info.executable);
+		if (!stagedExe) {
+			L.trace('sis_headless -lsp not started: staging to tempdir failed', info);
+			return;
+		}
+
 		const serverOptions: ServerOptions = {
-			command: info.executable,
+			command: stagedExe,
 			args: ['-lsp'],
 			// NOTE: do NOT set `transport: TransportKind.stdio` here. In the
 			// `Executable` branch of `vscode-languageclient`, stdio is
