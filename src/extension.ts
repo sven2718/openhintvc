@@ -6,7 +6,6 @@ import StatusBarItem from './lib/StatusBarItem';
 import { SisLuaSyntaxServer } from './lib/SisLuaSyntaxServer';
 import { registerLuaDefinitionProvider } from './features/LuaDefinitionProvider';
 import { registerLuaFormattingProvider } from './features/LuaFormattingProvider';
-import { registerLuaDiagnosticsProvider } from './features/LuaDiagnosticsProvider';
 
 const L = Logger.getLogger('extension');
 
@@ -110,6 +109,10 @@ const onConfigurationChange = () => {
   }
 };
 
+function isSyntaxDiagnosticsEnabled(): boolean {
+  return vscode.workspace.getConfiguration('sisDev').get<boolean>('luaSyntaxDiagnostics.enabled', true);
+}
+
 export function activate(context: vscode.ExtensionContext) {
   initialize();
 
@@ -122,12 +125,47 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.debug.registerDebugAdapterDescriptorFactory('lua', new LuaDebugAdapterDescriptorFactory(context)),
   );
 
+  // The SiS Lua LSP client. Diagnostics flow through it automatically
+  // once started (LanguageClient's own DiagnosticCollection, populated
+  // via `textDocument/publishDiagnostics`). The one non-standard thing
+  // the extension still reaches for is `tokenize()`, which the Definition
+  // provider calls opportunistically; see SisLuaSyntaxServer for details.
   const sisLuaSyntaxServer = new SisLuaSyntaxServer(context);
   context.subscriptions.push(sisLuaSyntaxServer);
 
+  if (isSyntaxDiagnosticsEnabled()) {
+    // Fire-and-forget: spawning `sis_headless -lsp` can take ~1s cold,
+    // and activation shouldn't block the editor on it.
+    void sisLuaSyntaxServer.start();
+  }
+
+  // React to user toggles of the diagnostics settings without requiring
+  // a full window reload. The two settings we watch are:
+  //   - `sisDev.luaSyntaxDiagnostics.enabled`
+  //   - `sisDev.luaSyntaxDiagnostics.sisHeadlessPath`
+  // A path change while the server is running triggers a graceful
+  // restart so the new binary gets picked up.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      const enabledChanged = event.affectsConfiguration('sisDev.luaSyntaxDiagnostics.enabled');
+      const pathChanged = event.affectsConfiguration('sisDev.luaSyntaxDiagnostics.sisHeadlessPath');
+      if (!enabledChanged && !pathChanged) return;
+
+      if (!isSyntaxDiagnosticsEnabled()) {
+        void sisLuaSyntaxServer.stop();
+        return;
+      }
+
+      if (sisLuaSyntaxServer.isRunning()) {
+        void sisLuaSyntaxServer.restart();
+      } else {
+        void sisLuaSyntaxServer.start();
+      }
+    }),
+  );
+
   registerLuaDefinitionProvider(context, sisLuaSyntaxServer);
   registerLuaFormattingProvider(context);
-  registerLuaDiagnosticsProvider(context, sisLuaSyntaxServer);
 }
 
 export function deactivate() {

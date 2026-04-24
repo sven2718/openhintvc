@@ -5,6 +5,10 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+
+## [0.1.7] - 2026-04-24
+- Rewiring the language server protocol.
+
 ## [0.1.6] - 2026-02-26
 - Debugger: enable `evaluate` for hover tooltips (avoids stale values from the Variables view during stepping).
 
