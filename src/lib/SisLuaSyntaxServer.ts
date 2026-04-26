@@ -391,10 +391,10 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 			// `Executable` branch of `vscode-languageclient`, stdio is
 			// already the default when `transport` is omitted, AND setting
 			// it explicitly causes the client to append `--stdio` to the
-			// child's argv (see `lib/node/main.js:410-411`).
-			// `sis_headless` accepts `--stdio` as a no-op since the Dec
-			// 2024 `-lsp` rewrite, but omitting the transport keeps the
-			// argv minimal.
+			// child's argv (see `lib/node/main.js:410-411`). `sis_headless`
+			// does swallow `--stdio` as a no-op (see `headless_main.cpp`),
+			// but omitting the transport here keeps the child's argv
+			// minimal and avoids relying on that compatibility shim.
 			options: {
 				cwd: info.cwd,
 			},
@@ -454,7 +454,7 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 
 	// `tokenize` is the one feature not already covered by the LSP
 	// standard set. The Definition provider calls it opportunistically
-	// (`startIfNeeded=false`) — when the server happens to be running
+	// (`startIfNeeded=false`) - when the server happens to be running
 	// it gets dialect-accurate tokens from `sis_lua_tokenize` in
 	// `core/lua_state.cpp`; otherwise it falls back to the TS tokenizer.
 	//
