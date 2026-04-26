@@ -30,14 +30,15 @@ import Logger from '../utils/Logger';
 //    process. `tokenize()` does NOT go through that chain since it only
 //    reads the current client.
 //
-//  - **Stage `sis_headless` to a tempdir before spawning.** Spawning
-//    the canonical exe directly puts a Windows image-load lock on it
-//    for the entire LSP session, which fights `link.exe /OUT:<exe>`
-//    during incremental rebuilds. `stageSisHeadlessForLsp` (below)
-//    copies the exe + sibling DLLs into `%TEMP%/sis_headless_lsp/<key>/`
-//    and returns the staged path; we hand THAT to `LanguageClient`. The
-//    Python launcher under `tools/sis_headless_lsp_launcher.py` does the
-//    same dance for non-VS Code clients (Crush, etc.).
+//  - **Stage `sis_headless` to a tempdir before spawning (Windows only).**
+//    Spawning the canonical exe directly puts a Windows image-load lock
+//    on it for the entire LSP session, which fights `link.exe /OUT:<exe>`
+//    during incremental rebuilds. `stageSisHeadlessForLsp` (below) copies
+//    the exe + sibling DLLs into `%TEMP%/sis_headless_lsp/<key>/` and
+//    returns the staged path; we hand THAT to `LanguageClient`. The Python
+//    launcher under `tools/sis_headless_lsp_launcher.py` does the same
+//    dance for non-VS Code clients (Crush, etc.). On Linux/macOS there is
+//    no image-load lock, so we spawn the canonical binary directly.
 //
 //  - **Optional startup.** Constructor does not auto-start. The
 //    extension activation layer decides when to `start()` based on
@@ -365,28 +366,35 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 			if (this.disposed) return;
 		}
 
-		// Stage the canonical exe into a tempdir before handing it to
-		// `LanguageClient`. The image-load lock then lives on the staged
-		// copy, freeing the canonical path for incremental rebuilds. If
-		// staging fails we'd rather be loud than silently fall back to
-		// the canonical path - that would re-introduce the rebuild lock.
-		sweepOldStagingDirs();
-		const stagedExe = stageSisHeadlessForLsp(info.executable);
-		if (!stagedExe) {
-			L.trace('sis_headless -lsp not started: staging to tempdir failed', info);
-			return;
+		// On Windows we stage the canonical exe into a tempdir before
+		// handing it to LanguageClient. The image-load lock then sits
+		// on the copy, freeing the canonical path for incremental
+		// rebuilds. Linux/macOS have no image-load lock, so we spawn
+		// the canonical binary directly.
+		let executable: string;
+		if (process.platform === 'win32') {
+			sweepOldStagingDirs();
+			const staged = stageSisHeadlessForLsp(info.executable);
+			if (!staged) {
+				L.trace('sis_headless -lsp not started: staging to tempdir failed', info);
+				return;
+			}
+			executable = staged;
+		} else {
+			executable = info.executable;
 		}
 
 		const serverOptions: ServerOptions = {
-			command: stagedExe,
+			command: executable,
 			args: ['-lsp'],
 			// NOTE: do NOT set `transport: TransportKind.stdio` here. In the
 			// `Executable` branch of `vscode-languageclient`, stdio is
 			// already the default when `transport` is omitted, AND setting
 			// it explicitly causes the client to append `--stdio` to the
-			// child's argv (see `lib/node/main.js:410-411`). `sis_headless`
-			// doesn't know that flag and bails with "unrecognized option"
-			// during the init handshake.
+			// child's argv (see `lib/node/main.js:410-411`).
+			// `sis_headless` accepts `--stdio` as a no-op since the Dec
+			// 2024 `-lsp` rewrite, but omitting the transport keeps the
+			// argv minimal.
 			options: {
 				cwd: info.cwd,
 			},
