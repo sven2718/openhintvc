@@ -62,6 +62,8 @@ The OpenHint server starts automatically when vscode open (see settings under `r
 - `SiS Dev: Start OpenHint Server`
 - `SiS Dev: Stop OpenHint Server`
 
+In windows whose workspace doesn't look like a Stars in Shadow checkout (no `Lua state/` directory or discoverable `sis_headless` binary), the extension stays dormant: it shows a one-time info notice and skips both the OpenHint server and the Lua LSP. The Lua debug adapter remains registered so a custom launch config can still be used.
+
 # Extension Developer Runbook:
 
 ## Local build + install (no publishing)

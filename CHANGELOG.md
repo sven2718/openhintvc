@@ -6,6 +6,9 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [Unreleased]
 
 
+## [0.1.8] - 2026-05-05
+- Do nothing when visual studio code is not editing a SiS workspaces.
+
 ## [0.1.7] - 2026-04-24
 - Rewiring the language server protocol.
 

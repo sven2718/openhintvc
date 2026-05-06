@@ -277,6 +277,21 @@ function resolveStartInfo(): StartInfo | undefined {
 	return undefined;
 }
 
+// Quick gate used by extension activation: returns true if any open
+// workspace folder looks SiS-shaped - i.e., has a `Lua state/` (or
+// `resources/Lua state/`) directory or a discoverable `sis_headless`
+// binary. Used to keep the extension dormant in unrelated workspaces
+// instead of looping on a failing OpenHint server start.
+export function isSisWorkspace(): boolean {
+	const folders = vscode.workspace.workspaceFolders ?? [];
+	for (const folder of folders) {
+		const folderPath = folder.uri.fsPath;
+		if (findLuaStateCwd(folderPath)) return true;
+		if (findSisHeadlessExecutable(folderPath)) return true;
+	}
+	return false;
+}
+
 export type SisLuaTokenKind = 'identifier' | 'keyword' | 'punct' | 'number';
 
 export type SisLuaToken = {
