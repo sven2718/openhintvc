@@ -3,8 +3,18 @@ All notable changes to the "openhintvc" extension will be documented in this fil
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [Unreleased]
+## [0.2.2] - 2026-05-12
+- Lua diagnostics: don't toast "LSP server stopped" for transient deaths during the initial startup handshake. The languageclient already retries automatically (5 attempts in 3 minutes); we only treat Stopped as a real failure after the server has reached Running at least once. Persistent failures still surface via the 15s `client.start()` watchdog.
 
+## [0.2.1] - 2026-05-12
+- Lua diagnostics: state transitions during `client.start()` are no longer dropped (status bar now reflects mid-startup activity).
+- Lua diagnostics: 15s watchdog on `client.start()` surfaces a stuck initialize handshake as a visible failure instead of an indefinitely-spinning status bar.
+- Lua diagnostics: trace-level logging through every step of `doStart`. Set `SIS_DEV_LOG_LEVEL=trace` for the full lifecycle + verbose JSON-RPC frame dumps in the SiS Lua LSP channel.
+
+## [0.2.0] - 2026-05-12
+- Lua diagnostics: status-bar item ("SiS Lua") now reflects LSP lifecycle (starting / running / unavailable / failed). Click to open the new "SiS Dev" output channel.
+- Lua diagnostics: one-shot warning notification when start fails for an actionable reason (no `sis_headless` found, staging refused, init handshake rejected). Previously these failed silently and the channel was never created.
+- More robust language server setup.
 
 ## [0.1.9] - 2026-05-05
 - OpenHint server: changed default port from 62696 to 52698 (the old default fell inside a Windows/Hyper-V excluded port range, causing `EACCES` listen failures).

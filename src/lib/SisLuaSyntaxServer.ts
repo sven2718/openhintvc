@@ -2,11 +2,14 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as util from 'node:util';
 import * as vscode from 'vscode';
 import {
 	LanguageClient,
 	LanguageClientOptions,
 	ServerOptions,
+	State as LcState,
+	Trace,
 } from 'vscode-languageclient/node';
 
 import Logger from '../utils/Logger';
@@ -34,20 +37,33 @@ import Logger from '../utils/Logger';
 //    Spawning the canonical exe directly puts a Windows image-load lock
 //    on it for the entire LSP session, which fights `link.exe /OUT:<exe>`
 //    during incremental rebuilds. `stageSisHeadlessForLsp` (below) copies
-//    the exe + sibling DLLs into `%TEMP%/sis_headless_lsp/<key>/` and
-//    returns the staged path; we hand THAT to `LanguageClient`. The Python
-//    launcher under `tools/sis_headless_lsp_launcher.py` does the same
-//    dance for non-VS Code clients (Crush, etc.). On Linux/macOS there is
-//    no image-load lock, so we spawn the canonical binary directly.
+//    the exe + sibling DLLs into `%TEMP%/sis_headless_lsp/<key>_<mtime>/`
+//    and returns the staged path; we hand THAT to `LanguageClient`. The
+//    Python launcher under `tools/sis_headless_lsp_launcher.py` does the
+//    same dance for non-VS Code clients (Crush, etc.). On Linux/macOS
+//    there is no image-load lock, so we spawn the canonical binary
+//    directly.
 //
 //  - **Optional startup.** Constructor does not auto-start. The
 //    extension activation layer decides when to `start()` based on
 //    `sisDev.luaSyntaxDiagnostics.enabled`, workspace shape, and exe
 //    availability.
+//
+//  - **State surface.** A status-bar item and one-shot notifications
+//    reflect the lifecycle so silent failures (no exe, staging refused,
+//    init handshake rejected) actually reach the user instead of
+//    rotting in an invisible log.
 
 const L = Logger.getLogger('SisLuaSyntaxServer');
 
 const MAX_TEXT_CHARS = 1024 * 1024;
+
+// How long to wait for `client.start()` to complete before declaring the
+// LSP server hung and surfacing a visible failure. Cold boot of
+// `sis_headless` takes ~1s; 15s is generous enough to ride out a slow
+// startup but short enough that a real hang stops being invisible to the
+// user.
+const CLIENT_START_TIMEOUT_MS = 15_000;
 
 function fileExists(p: string): boolean {
 	try {
@@ -128,15 +144,24 @@ function findSisHeadlessExecutable(workspaceFolderPath: string): string | undefi
 //
 // #sis_lua_lsp
 //
-// Mirror of `tools/sis_headless_lsp_launcher.py`: copy `sis_headless` and
-// its sibling DLLs into `%TEMP%/sis_headless_lsp/<key>/` and return the
-// staged path. <key> is a short hash of the source path so two checkouts
-// on the same machine don't collide. We re-stage when the source's
-// `size` + `mtimeMs` no longer match the recorded stamp, and skip the
-// copy otherwise (so warm restarts cost ~one stat call).
+// Layout (must stay byte-for-byte compatible with the Python launcher
+// under `tools/sis_headless_lsp_launcher.py` so the two clients share
+// staged copies instead of fighting over parallel dirs):
 //
-// The canonical exe is never spawned directly, which keeps it free for
-// `link.exe /OUT:<exe>` during incremental rebuilds.
+//     %TEMP%/sis_headless_lsp/
+//         <pathSha1[:16]>_<mtimeNs>/
+//             sis_headless.exe        <- staged
+//             *.dll                   <- staged siblings
+//
+// The dir name includes the source exe's nanosecond mtime, so a
+// rebuild always lands in a fresh dir. The old staged copy may still
+// be held open by a previous LSP child - that's fine; we don't touch
+// it, and the per-key sweep below GC's it once nothing has it locked.
+//
+// Before 0.2.0 the dir name was just the path hash and the staged file
+// was overwritten in place. That fought any still-running LSP child
+// for the file lock (`copyFileSync -> EBUSY` -> silent abort -> no
+// diagnostics for the rest of the session).
 
 const STAGING_ROOT_NAME = 'sis_headless_lsp';
 const STAGING_SWEEP_AGE_MS = 24 * 60 * 60 * 1000;
@@ -145,33 +170,30 @@ function stagingRoot(): string {
 	return path.join(os.tmpdir(), STAGING_ROOT_NAME);
 }
 
-function stagingDirFor(sourceExe: string): string {
-	const key = crypto.createHash('sha1').update(sourceExe).digest('hex').slice(0, 16);
-	return path.join(stagingRoot(), key);
+// Normalize so the TS and Python launchers hash to the same key.
+// `path.resolve` on Windows preserves the original drive-letter case,
+// so e.g. VS Code's `c:\...` and Python's `C:\...` would otherwise
+// produce two different sha1s and two parallel staging dirs.
+function normalizeStagingPath(p: string): string {
+	return path.resolve(p).replace(/\\/g, '/').toLowerCase();
 }
 
-interface StageStamp {
-	size: number;
-	mtimeMs: number;
+function stagingKey(sourceExe: string): string {
+	return crypto
+		.createHash('sha1')
+		.update(normalizeStagingPath(sourceExe), 'utf-8')
+		.digest('hex')
+		.slice(0, 16);
 }
 
-function readStamp(stampPath: string): StageStamp | undefined {
-	try {
-		const raw = fs.readFileSync(stampPath, 'utf-8');
-		const parsed = JSON.parse(raw) as Partial<StageStamp>;
-		if (typeof parsed.size === 'number' && typeof parsed.mtimeMs === 'number') {
-			return { size: parsed.size, mtimeMs: parsed.mtimeMs };
-		}
-	} catch {
-		// stamp missing or unreadable; treat as stale
-	}
-	return undefined;
+function stagingDirFor(sourceExe: string, mtimeNs: bigint): string {
+	return path.join(stagingRoot(), `${stagingKey(sourceExe)}_${mtimeNs}`);
 }
 
-// Best-effort cleanup: remove sibling staging dirs whose mtime is older
-// than `STAGING_SWEEP_AGE_MS`. A dir whose exe is currently held open by
-// another LSP child will fail to delete; we silently move on and rely on
-// a future sweep.
+// Best-effort cleanup: remove staging dirs whose mtime is older than
+// `STAGING_SWEEP_AGE_MS`. A dir whose exe is currently held open by
+// another LSP child will fail to delete; we silently move on and rely
+// on a future sweep.
 function sweepOldStagingDirs(): void {
 	const root = stagingRoot();
 	let entries: string[];
@@ -193,35 +215,72 @@ function sweepOldStagingDirs(): void {
 	}
 }
 
+// Eager per-key cleanup: drop sibling staged versions of the same
+// source exe path. Runs alongside `sweepOldStagingDirs` so heavy
+// rebuild sessions don't accumulate 24h of 9MB stale copies.
+//
+// A locked sibling silently survives (rmSync throws, we swallow).
+function pruneSiblingStagingVersions(sourceExe: string, currentDir: string): void {
+	const root = stagingRoot();
+	const prefix = `${stagingKey(sourceExe)}_`;
+	const currentName = path.basename(currentDir);
+	let entries: string[];
+	try {
+		entries = fs.readdirSync(root);
+	} catch {
+		return;
+	}
+	for (const entry of entries) {
+		if (entry === currentName) continue;
+		if (!entry.startsWith(prefix)) continue;
+		try {
+			fs.rmSync(path.join(root, entry), { recursive: true, force: true });
+		} catch {
+			// locked or otherwise unkillable; leave for next pass
+		}
+	}
+}
+
 // Returns the staged exe path on success, or `undefined` if staging
 // failed for any reason (in which case the caller can either fall back
-// to the canonical path or just refuse to start).
-function stageSisHeadlessForLsp(sourceExe: string): string | undefined {
+// to the canonical path or just refuse to start). The returned error
+// (if any) is surfaced via the caller's state machine.
+interface StageResult {
+	stagedExe?: string;
+	error?: string;
+}
+
+function stageSisHeadlessForLsp(sourceExe: string): StageResult {
 	const absSource = path.resolve(sourceExe);
-	const stagingDir = stagingDirFor(absSource);
-	const stagedExe = path.join(stagingDir, path.basename(absSource));
-	const stampPath = path.join(stagingDir, 'stamp.json');
 
-	let srcStat: fs.Stats;
+	// `mtimeNs` (bigint) is the nanosecond field exposed by
+	// `statSync({bigint:true})`. We do NOT pull it from `mtimeMs * 1e6`
+	// because that loses the lower ~16 bits of precision on Windows
+	// NTFS (mtime is a 100ns FILETIME).
+	let mtimeNs: bigint;
 	try {
-		srcStat = fs.statSync(absSource);
+		mtimeNs = fs.statSync(absSource, { bigint: true }).mtimeNs;
 	} catch (err) {
-		L.trace('stageSisHeadlessForLsp: source stat failed', err);
-		return undefined;
+		const msg = `source stat failed: ${err instanceof Error ? err.message : String(err)}`;
+		L.warn('stageSisHeadlessForLsp:', msg);
+		return { error: msg };
 	}
-	const srcStamp: StageStamp = { size: srcStat.size, mtimeMs: srcStat.mtimeMs };
 
-	const cached = readStamp(stampPath);
-	if (cached && cached.size === srcStamp.size && cached.mtimeMs === srcStamp.mtimeMs && fileExists(stagedExe)) {
-		return stagedExe;
+	const stagingDir = stagingDirFor(absSource, mtimeNs);
+	const stagedExe = path.join(stagingDir, path.basename(absSource));
+
+	if (fileExists(stagedExe)) {
+		// Warm path: this exact build is already staged.
+		return { stagedExe };
 	}
 
 	try {
 		fs.mkdirSync(stagingDir, { recursive: true });
 		fs.copyFileSync(absSource, stagedExe);
 	} catch (err) {
-		L.trace('stageSisHeadlessForLsp: copy failed', err);
-		return undefined;
+		const msg = `copy to ${stagingDir} failed: ${err instanceof Error ? err.message : String(err)}`;
+		L.error('stageSisHeadlessForLsp:', msg);
+		return { error: msg };
 	}
 
 	// Copy sibling .dll files. In dev builds there usually aren't any
@@ -247,13 +306,8 @@ function stageSisHeadlessForLsp(sourceExe: string): string | undefined {
 		}
 	}
 
-	try {
-		fs.writeFileSync(stampPath, JSON.stringify(srcStamp), 'utf-8');
-	} catch {
-		// non-fatal: a missing stamp just means we'll re-stage next time
-	}
-
-	return stagedExe;
+	pruneSiblingStagingVersions(absSource, stagingDir);
+	return { stagedExe };
 }
 
 // Startup info for a particular workspace folder. We recompute this on
@@ -264,17 +318,33 @@ interface StartInfo {
 	cwd: string;
 }
 
-function resolveStartInfo(): StartInfo | undefined {
+interface StartInfoLookup {
+	info?: StartInfo;
+	// Non-fatal reason explaining why no info was returned. Used by the
+	// status surface to tell "we're in a SiS workspace but the exe
+	// hasn't been built yet" apart from "this workspace just isn't SiS".
+	reason?: string;
+}
+
+function resolveStartInfo(): StartInfoLookup {
 	const folders = vscode.workspace.workspaceFolders ?? [];
+	let sawSisShape = false;
 	for (const folder of folders) {
 		const folderPath = folder.uri.fsPath;
 		const cwd = findLuaStateCwd(folderPath);
 		if (!cwd) continue;
+		sawSisShape = true;
 		const executable = findSisHeadlessExecutable(folderPath);
 		if (!executable) continue;
-		return { executable, cwd };
+		return { info: { executable, cwd } };
 	}
-	return undefined;
+	if (sawSisShape) {
+		return {
+			reason:
+				'no sis_headless executable found in workspace (build x64/Release/sis_headless.exe or set sisDev.luaSyntaxDiagnostics.sisHeadlessPath)',
+		};
+	}
+	return { reason: 'no SiS-shaped workspace folder' };
 }
 
 // Quick gate used by extension activation: returns true if any open
@@ -302,7 +372,31 @@ export type SisLuaToken = {
 	line?: number;
 };
 
+// -- Status surface ---------------------------------------------------------
+//
+// One status-bar item, one notification per failure reason per session.
+
+type LspStatus =
+	| { kind: 'idle' } // disabled by config, or extension just constructed
+	| { kind: 'starting'; info: StartInfo }
+	| { kind: 'running'; info: StartInfo }
+	| { kind: 'stopped' }
+	| { kind: 'unavailable'; reason: string } // workspace looks SiS but no exe
+	| { kind: 'failed'; reason: string };
+
+// Command registered by the SisLua status bar item. Clicking it opens
+// the "SiS Dev" output channel so the user can see the lifecycle log.
+const SHOW_LOG_COMMAND = 'sisDev.showLog';
+
 export class SisLuaSyntaxServer implements vscode.Disposable {
+	// `currentClient` tracks the language-client that an in-flight or
+	// running `doStart` invocation owns. Set BEFORE `client.start()` so
+	// the onDidChangeState callback can react to Starting/Running/Stopped
+	// transitions that fire DURING the start() call. `client` is
+	// strictly the post-start handle used by `tokenize()` and the
+	// guard checks; it's only assigned after start() resolves
+	// successfully.
+	private currentClient: LanguageClient | undefined;
 	private client: LanguageClient | undefined;
 	private startedFor: StartInfo | undefined;
 	private disposed = false;
@@ -312,10 +406,36 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 	// read `this.client`.
 	private lifecycle: Promise<void> = Promise.resolve();
 
-	constructor(private readonly context: vscode.ExtensionContext) {}
+	private status: LspStatus = { kind: 'idle' };
+	private statusBar: vscode.StatusBarItem;
+	private clientStateSub: vscode.Disposable | undefined;
+	// Reasons we've already surfaced via showWarningMessage this session.
+	// Keeps us from nagging the user every time a lifecycle restart
+	// hits the same wall.
+	private notifiedReasons = new Set<string>();
+
+	constructor(private readonly context: vscode.ExtensionContext) {
+		this.statusBar = vscode.window.createStatusBarItem(
+			vscode.StatusBarAlignment.Right,
+			// Slightly left-biased priority so this sits near the
+			// OpenHint item (which uses default 0).
+			99,
+		);
+		this.statusBar.command = SHOW_LOG_COMMAND;
+		this.statusBar.name = 'SiS Lua LSP';
+		context.subscriptions.push(this.statusBar);
+
+		context.subscriptions.push(
+			vscode.commands.registerCommand(SHOW_LOG_COMMAND, () => Logger.show()),
+		);
+
+		this.renderStatus();
+	}
 
 	dispose(): void {
 		this.disposed = true;
+		this.clientStateSub?.dispose();
+		this.clientStateSub = undefined;
 		// Fire-and-forget; VS Code deactivation is best-effort.
 		void this.stop();
 	}
@@ -355,15 +475,26 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 	private async doStart(): Promise<void> {
 		if (this.disposed) return;
 
-		const info = resolveStartInfo();
-		if (!info) {
-			// Either no SiS-shaped workspace, or no exe. Just leave the
-			// server offline; the Definition provider's opportunistic
-			// `tokenize(doc, startIfNeeded=false)` calls will return
-			// undefined and fall back to the TS tokenizer.
-			L.trace('sis_headless -lsp not started: no suitable workspace or exe');
+		L.trace('doStart: enter');
+		const lookup = resolveStartInfo();
+		if (!lookup.info) {
+			const reason = lookup.reason ?? 'no startup info';
+			L.info('sis_headless -lsp not started:', reason);
+			if (lookup.reason && lookup.reason.startsWith('no sis_headless executable')) {
+				this.setStatus({ kind: 'unavailable', reason });
+				this.notifyOnce(
+					'no-exe',
+					'SiS Lua diagnostics are off: no sis_headless executable found in the workspace. Build x64/Release/sis_headless.exe or set `sisDev.luaSyntaxDiagnostics.sisHeadlessPath`.',
+				);
+			} else {
+				// workspace just isn't SiS-shaped - stay quiet, the
+				// dormant-workspace notification in `activate()`
+				// already covers this case.
+				this.setStatus({ kind: 'idle' });
+			}
 			return;
 		}
+		const info = lookup.info;
 
 		// Already running with the same exe + cwd? Nothing to do.
 		if (
@@ -381,6 +512,9 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 			if (this.disposed) return;
 		}
 
+		L.trace('doStart: resolved info', info);
+		this.setStatus({ kind: 'starting', info });
+
 		// On Windows we stage the canonical exe into a tempdir before
 		// handing it to LanguageClient. The image-load lock then sits
 		// on the copy, freeing the canonical path for incremental
@@ -390,11 +524,18 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 		if (process.platform === 'win32') {
 			sweepOldStagingDirs();
 			const staged = stageSisHeadlessForLsp(info.executable);
-			if (!staged) {
-				L.trace('sis_headless -lsp not started: staging to tempdir failed', info);
+			if (!staged.stagedExe) {
+				const reason = staged.error ?? 'unknown staging error';
+				L.error('sis_headless -lsp not started: staging failed', reason);
+				this.setStatus({ kind: 'failed', reason: `staging failed: ${reason}` });
+				this.notifyOnce(
+					'staging-failed',
+					`SiS Lua diagnostics failed to start: couldn't stage sis_headless to TEMP (${reason}).`,
+				);
 				return;
 			}
-			executable = staged;
+			executable = staged.stagedExe;
+			L.trace('doStart: staged exe', executable);
 		} else {
 			executable = info.executable;
 		}
@@ -415,10 +556,14 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 			},
 		};
 
+		const traceVerbose = (process.env.SIS_DEV_LOG_LEVEL ?? '').toLowerCase() === 'trace';
 		const clientOptions: LanguageClientOptions = {
 			documentSelector: [{ language: 'lua', scheme: 'file' }],
 			// A dedicated output channel so users (and Sven) can inspect
 			// what the server actually said during startup failures.
+			// This is separate from our "SiS Dev" channel: that one
+			// carries extension-side lifecycle traces, this one carries
+			// raw protocol traffic and server stderr.
 			outputChannelName: 'SiS Lua LSP',
 		};
 
@@ -429,14 +574,94 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 			clientOptions,
 		);
 
+		// Verbose tracing when SIS_DEV_LOG_LEVEL=trace. Logs every
+		// inbound and outbound JSON-RPC message to the "SiS Lua LSP"
+		// output channel, which is invaluable for diagnosing a stuck
+		// `client.start()` (you can see exactly which request the
+		// languageclient is still waiting on a response for).
+		if (traceVerbose) {
+			client.setTrace(Trace.Verbose).catch(() => {
+				// non-fatal; trace is a diagnostic nicety
+			});
+		}
+
+		// Publish to `currentClient` BEFORE `client.start()` so the state
+		// listener below can react to the Stopped->Starting->Running
+		// transitions that fire while `start()` is in flight. Previously
+		// we gated the callback on `this.client === client`, but
+		// `this.client` was only assigned AFTER start() returned - so
+		// every state event during startup was silently dropped, making
+		// a hung `start()` invisible to the status surface.
+		this.currentClient = client;
+
+		// `everRan` tracks whether this client has ever reached the Running
+		// state. The languageclient's default error handler restarts a
+		// dead server up to 5 times in 3 minutes, so a transient death
+		// during the initial init handshake (Mode A in the diagnostics
+		// notes) is normal and usually recovers on the retry. We only
+		// treat Stopped as a final failure once we've seen Running at
+		// least once - before that, leave it to the LC's restart loop
+		// and the watchdog around `startWithTimeout` to decide whether
+		// it's actually broken.
+		let everRan = false;
+
+		this.clientStateSub?.dispose();
+		this.clientStateSub = client.onDidChangeState((e) => {
+			if (this.disposed || this.currentClient !== client) return;
+			L.trace('client state change', LcState[e.oldState], '->', LcState[e.newState]);
+			switch (e.newState) {
+				case LcState.Starting:
+					this.setStatus({ kind: 'starting', info });
+					break;
+				case LcState.Running:
+					everRan = true;
+					this.setStatus({ kind: 'running', info });
+					break;
+				case LcState.Stopped:
+					if (!everRan) {
+						// First-startup transient death. The languageclient
+						// will retry; the watchdog will surface a permanent
+						// failure if every retry hangs. Just log and wait.
+						L.info('sis_headless -lsp Stopped during initial startup (languageclient will retry)');
+						break;
+					}
+					// We had a healthy session and the server died on us.
+					// Clear our references so a subsequent explicit `start()`
+					// will attempt a fresh spawn, and tell the user the
+					// LSP went down.
+					L.warn('sis_headless -lsp transitioned to Stopped after running');
+					this.currentClient = undefined;
+					this.client = undefined;
+					this.startedFor = undefined;
+					this.setStatus({ kind: 'failed', reason: 'LSP server stopped' });
+					this.notifyOnce(
+						'unexpected-stop',
+						'SiS Lua diagnostics stopped: the LSP server died after running. Open the SiS Lua LSP output channel for protocol details.',
+					);
+					break;
+			}
+		});
+
+		L.trace('doStart: awaiting client.start()...');
 		try {
-			await client.start();
+			await this.startWithTimeout(client);
 		} catch (err) {
-			L.trace('sis_headless -lsp failed to start', err);
+			const reason = err instanceof Error ? err.message : String(err);
+			L.error('sis_headless -lsp failed to start', reason);
+			this.setStatus({ kind: 'failed', reason });
+			this.notifyOnce(
+				`init-failed:${reason}`,
+				`SiS Lua diagnostics failed to start: ${reason}. See the SiS Lua LSP output channel for protocol details.`,
+			);
 			// Ensure no zombie child survives a failed init handshake.
+			if (this.currentClient === client) this.currentClient = undefined;
 			try {
 				await client.stop();
-			} catch {}
+			} catch {
+				// already half-dead; nothing to do
+			}
+			this.clientStateSub?.dispose();
+			this.clientStateSub = undefined;
 			return;
 		}
 
@@ -446,25 +671,141 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 		if (this.disposed) {
 			try {
 				await client.stop();
-			} catch {}
+			} catch {
+				// dispose path; nothing to do
+			}
 			return;
 		}
 
 		this.client = client;
 		this.startedFor = info;
-		L.trace('sis_headless -lsp started', info);
+		this.setStatus({ kind: 'running', info });
+		L.info('sis_headless -lsp started', info);
+	}
+
+	// Wrap `client.start()` in a watchdog. If the languageclient's
+	// initialize handshake doesn't complete inside `CLIENT_START_TIMEOUT_MS`,
+	// give up and surface a visible failure instead of leaving the user
+	// staring at a spinning status bar forever.
+	private startWithTimeout(client: LanguageClient): Promise<void> {
+		return new Promise<void>((resolve, reject) => {
+			let settled = false;
+			const timer = setTimeout(() => {
+				if (settled) return;
+				settled = true;
+				reject(
+					new Error(
+						`client.start() did not complete within ${CLIENT_START_TIMEOUT_MS} ms`,
+					),
+				);
+			}, CLIENT_START_TIMEOUT_MS);
+			client.start().then(
+				() => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(timer);
+					resolve();
+				},
+				(err: unknown) => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(timer);
+					reject(
+						err instanceof Error
+							? err
+							: new Error(util.inspect(err, { depth: 2 })),
+					);
+				},
+			);
+		});
 	}
 
 	private async doStop(): Promise<void> {
-		const client = this.client;
+		// Stop whichever client is currently active. During startup the
+		// post-start handle (`this.client`) is still undefined - but the
+		// in-flight client lives on `this.currentClient`, and we want to
+		// be able to tear that down too (e.g. when an init handshake
+		// times out).
+		const client = this.client ?? this.currentClient;
 		this.client = undefined;
+		this.currentClient = undefined;
 		this.startedFor = undefined;
-		if (!client) return;
+		this.clientStateSub?.dispose();
+		this.clientStateSub = undefined;
+		if (!client) {
+			// Idle -> idle; preserve any non-running status (e.g.
+			// 'unavailable') the caller asked us to display.
+			if (this.status.kind === 'running' || this.status.kind === 'starting') {
+				this.setStatus({ kind: 'stopped' });
+			}
+			return;
+		}
 		try {
 			await client.stop();
 		} catch (err) {
-			L.trace('sis_headless -lsp stop failed', err);
+			L.warn('sis_headless -lsp stop failed', err);
 		}
+		if (!this.disposed) this.setStatus({ kind: 'stopped' });
+	}
+
+	private setStatus(s: LspStatus): void {
+		this.status = s;
+		this.renderStatus();
+	}
+
+	// Render the current state into the status-bar item. The tooltip
+	// holds the gory details (paths, error strings); the visible text
+	// stays terse.
+	private renderStatus(): void {
+		const s = this.status;
+		const bar = this.statusBar;
+		// Reset error background; we re-apply it for failure states.
+		bar.backgroundColor = undefined;
+
+		switch (s.kind) {
+			case 'idle':
+				bar.hide();
+				return;
+			case 'stopped':
+				bar.text = '$(circle-slash) SiS Lua';
+				bar.tooltip = 'SiS Lua LSP stopped. Click to show the SiS Dev log.';
+				bar.show();
+				return;
+			case 'starting':
+				bar.text = '$(sync~spin) SiS Lua';
+				bar.tooltip = `Starting sis_headless -lsp...\n  exe: ${s.info.executable}\n  cwd: ${s.info.cwd}`;
+				bar.show();
+				return;
+			case 'running':
+				bar.text = '$(check) SiS Lua';
+				bar.tooltip = `SiS Lua LSP running.\n  exe: ${s.info.executable}\n  cwd: ${s.info.cwd}\nClick to show the SiS Dev log.`;
+				bar.show();
+				return;
+			case 'unavailable':
+				bar.text = '$(warning) SiS Lua';
+				bar.tooltip = `SiS Lua LSP unavailable: ${s.reason}.\nClick to show the SiS Dev log.`;
+				bar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+				bar.show();
+				return;
+			case 'failed':
+				bar.text = '$(error) SiS Lua';
+				bar.tooltip = `SiS Lua LSP failed: ${s.reason}.\nClick to show the SiS Dev log.`;
+				bar.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+				bar.show();
+				return;
+		}
+	}
+
+	// One-shot notification per reason key. Offers a "Show Logs" action
+	// that reveals the "SiS Dev" output channel. We deliberately don't
+	// nag again for the same reason in the same session - lifecycle
+	// retries from config changes would otherwise re-pop the toast.
+	private notifyOnce(reasonKey: string, message: string): void {
+		if (this.notifiedReasons.has(reasonKey)) return;
+		this.notifiedReasons.add(reasonKey);
+		void vscode.window.showWarningMessage(message, 'Show Logs').then((choice) => {
+			if (choice === 'Show Logs') Logger.show();
+		});
 	}
 
 	// `tokenize` is the one feature not already covered by the LSP
