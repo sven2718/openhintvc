@@ -2,12 +2,14 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as util from 'node:util';
 import * as vscode from 'vscode';
 import {
 	LanguageClient,
 	LanguageClientOptions,
 	ServerOptions,
 	State as LcState,
+	Trace,
 } from 'vscode-languageclient/node';
 
 import Logger from '../utils/Logger';
@@ -55,6 +57,13 @@ import Logger from '../utils/Logger';
 const L = Logger.getLogger('SisLuaSyntaxServer');
 
 const MAX_TEXT_CHARS = 1024 * 1024;
+
+// How long to wait for `client.start()` to complete before declaring the
+// LSP server hung and surfacing a visible failure. Cold boot of
+// `sis_headless` takes ~1s; 15s is generous enough to ride out a slow
+// startup but short enough that a real hang stops being invisible to the
+// user.
+const CLIENT_START_TIMEOUT_MS = 15_000;
 
 function fileExists(p: string): boolean {
 	try {
@@ -380,6 +389,14 @@ type LspStatus =
 const SHOW_LOG_COMMAND = 'sisDev.showLog';
 
 export class SisLuaSyntaxServer implements vscode.Disposable {
+	// `currentClient` tracks the language-client that an in-flight or
+	// running `doStart` invocation owns. Set BEFORE `client.start()` so
+	// the onDidChangeState callback can react to Starting/Running/Stopped
+	// transitions that fire DURING the start() call. `client` is
+	// strictly the post-start handle used by `tokenize()` and the
+	// guard checks; it's only assigned after start() resolves
+	// successfully.
+	private currentClient: LanguageClient | undefined;
 	private client: LanguageClient | undefined;
 	private startedFor: StartInfo | undefined;
 	private disposed = false;
@@ -458,6 +475,7 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 	private async doStart(): Promise<void> {
 		if (this.disposed) return;
 
+		L.trace('doStart: enter');
 		const lookup = resolveStartInfo();
 		if (!lookup.info) {
 			const reason = lookup.reason ?? 'no startup info';
@@ -494,6 +512,7 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 			if (this.disposed) return;
 		}
 
+		L.trace('doStart: resolved info', info);
 		this.setStatus({ kind: 'starting', info });
 
 		// On Windows we stage the canonical exe into a tempdir before
@@ -516,6 +535,7 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 				return;
 			}
 			executable = staged.stagedExe;
+			L.trace('doStart: staged exe', executable);
 		} else {
 			executable = info.executable;
 		}
@@ -536,6 +556,7 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 			},
 		};
 
+		const traceVerbose = (process.env.SIS_DEV_LOG_LEVEL ?? '').toLowerCase() === 'trace';
 		const clientOptions: LanguageClientOptions = {
 			documentSelector: [{ language: 'lua', scheme: 'file' }],
 			// A dedicated output channel so users (and Sven) can inspect
@@ -553,12 +574,30 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 			clientOptions,
 		);
 
-		// Track post-init state transitions so the status bar reflects
-		// reality if the server dies and the languageclient restarts it
-		// (or gives up after the default 5-restarts-in-3-minutes budget).
+		// Verbose tracing when SIS_DEV_LOG_LEVEL=trace. Logs every
+		// inbound and outbound JSON-RPC message to the "SiS Lua LSP"
+		// output channel, which is invaluable for diagnosing a stuck
+		// `client.start()` (you can see exactly which request the
+		// languageclient is still waiting on a response for).
+		if (traceVerbose) {
+			client.setTrace(Trace.Verbose).catch(() => {
+				// non-fatal; trace is a diagnostic nicety
+			});
+		}
+
+		// Publish to `currentClient` BEFORE `client.start()` so the state
+		// listener below can react to the Stopped->Starting->Running
+		// transitions that fire while `start()` is in flight. Previously
+		// we gated the callback on `this.client === client`, but
+		// `this.client` was only assigned AFTER start() returned - so
+		// every state event during startup was silently dropped, making
+		// a hung `start()` invisible to the status surface.
+		this.currentClient = client;
+
 		this.clientStateSub?.dispose();
 		this.clientStateSub = client.onDidChangeState((e) => {
-			if (this.disposed || this.client !== client) return;
+			if (this.disposed || this.currentClient !== client) return;
+			L.trace('client state change', LcState[e.oldState], '->', LcState[e.newState]);
 			switch (e.newState) {
 				case LcState.Starting:
 					this.setStatus({ kind: 'starting', info });
@@ -568,37 +607,38 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 					break;
 				case LcState.Stopped:
 					// Distinguish "we asked it to stop" from "it died".
-					// `doStop` clears `this.client` first; if we still own
-					// it here, the stop was unsolicited (the language-
-					// client gave up after its built-in restart budget,
-					// or `sis_headless` crashed). Clear our reference so
-					// `isRunning()` matches reality and a subsequent
-					// `start()` will attempt a fresh spawn.
-					if (this.client === client) {
-						L.warn('sis_headless -lsp transitioned to Stopped unexpectedly');
-						this.client = undefined;
-						this.startedFor = undefined;
-						this.setStatus({ kind: 'failed', reason: 'LSP server stopped' });
-						this.notifyOnce(
-							'unexpected-stop',
-							'SiS Lua diagnostics stopped: the LSP server died and could not be restarted. Reload the window to try again.',
-						);
-					}
+					// `doStop` clears `currentClient` first; if we still own
+					// this client here, the stop was unsolicited (the
+					// languageclient gave up after its built-in restart
+					// budget, or `sis_headless` crashed). Clear our
+					// references so a subsequent `start()` will attempt a
+					// fresh spawn.
+					L.warn('sis_headless -lsp transitioned to Stopped unexpectedly');
+					this.currentClient = undefined;
+					this.client = undefined;
+					this.startedFor = undefined;
+					this.setStatus({ kind: 'failed', reason: 'LSP server stopped' });
+					this.notifyOnce(
+						'unexpected-stop',
+						'SiS Lua diagnostics stopped: the LSP server died or never finished initializing. Open the SiS Lua LSP output channel for protocol details.',
+					);
 					break;
 			}
 		});
 
+		L.trace('doStart: awaiting client.start()...');
 		try {
-			await client.start();
+			await this.startWithTimeout(client);
 		} catch (err) {
 			const reason = err instanceof Error ? err.message : String(err);
 			L.error('sis_headless -lsp failed to start', reason);
 			this.setStatus({ kind: 'failed', reason });
 			this.notifyOnce(
 				`init-failed:${reason}`,
-				`SiS Lua diagnostics failed to start: ${reason}.`,
+				`SiS Lua diagnostics failed to start: ${reason}. See the SiS Lua LSP output channel for protocol details.`,
 			);
 			// Ensure no zombie child survives a failed init handshake.
+			if (this.currentClient === client) this.currentClient = undefined;
 			try {
 				await client.stop();
 			} catch {
@@ -627,9 +667,52 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 		L.info('sis_headless -lsp started', info);
 	}
 
+	// Wrap `client.start()` in a watchdog. If the languageclient's
+	// initialize handshake doesn't complete inside `CLIENT_START_TIMEOUT_MS`,
+	// give up and surface a visible failure instead of leaving the user
+	// staring at a spinning status bar forever.
+	private startWithTimeout(client: LanguageClient): Promise<void> {
+		return new Promise<void>((resolve, reject) => {
+			let settled = false;
+			const timer = setTimeout(() => {
+				if (settled) return;
+				settled = true;
+				reject(
+					new Error(
+						`client.start() did not complete within ${CLIENT_START_TIMEOUT_MS} ms`,
+					),
+				);
+			}, CLIENT_START_TIMEOUT_MS);
+			client.start().then(
+				() => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(timer);
+					resolve();
+				},
+				(err: unknown) => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(timer);
+					reject(
+						err instanceof Error
+							? err
+							: new Error(util.inspect(err, { depth: 2 })),
+					);
+				},
+			);
+		});
+	}
+
 	private async doStop(): Promise<void> {
-		const client = this.client;
+		// Stop whichever client is currently active. During startup the
+		// post-start handle (`this.client`) is still undefined - but the
+		// in-flight client lives on `this.currentClient`, and we want to
+		// be able to tear that down too (e.g. when an init handshake
+		// times out).
+		const client = this.client ?? this.currentClient;
 		this.client = undefined;
+		this.currentClient = undefined;
 		this.startedFor = undefined;
 		this.clientStateSub?.dispose();
 		this.clientStateSub = undefined;
