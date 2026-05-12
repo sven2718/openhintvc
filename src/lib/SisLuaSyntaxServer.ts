@@ -594,6 +594,17 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 		// a hung `start()` invisible to the status surface.
 		this.currentClient = client;
 
+		// `everRan` tracks whether this client has ever reached the Running
+		// state. The languageclient's default error handler restarts a
+		// dead server up to 5 times in 3 minutes, so a transient death
+		// during the initial init handshake (Mode A in the diagnostics
+		// notes) is normal and usually recovers on the retry. We only
+		// treat Stopped as a final failure once we've seen Running at
+		// least once - before that, leave it to the LC's restart loop
+		// and the watchdog around `startWithTimeout` to decide whether
+		// it's actually broken.
+		let everRan = false;
+
 		this.clientStateSub?.dispose();
 		this.clientStateSub = client.onDidChangeState((e) => {
 			if (this.disposed || this.currentClient !== client) return;
@@ -603,24 +614,29 @@ export class SisLuaSyntaxServer implements vscode.Disposable {
 					this.setStatus({ kind: 'starting', info });
 					break;
 				case LcState.Running:
+					everRan = true;
 					this.setStatus({ kind: 'running', info });
 					break;
 				case LcState.Stopped:
-					// Distinguish "we asked it to stop" from "it died".
-					// `doStop` clears `currentClient` first; if we still own
-					// this client here, the stop was unsolicited (the
-					// languageclient gave up after its built-in restart
-					// budget, or `sis_headless` crashed). Clear our
-					// references so a subsequent `start()` will attempt a
-					// fresh spawn.
-					L.warn('sis_headless -lsp transitioned to Stopped unexpectedly');
+					if (!everRan) {
+						// First-startup transient death. The languageclient
+						// will retry; the watchdog will surface a permanent
+						// failure if every retry hangs. Just log and wait.
+						L.info('sis_headless -lsp Stopped during initial startup (languageclient will retry)');
+						break;
+					}
+					// We had a healthy session and the server died on us.
+					// Clear our references so a subsequent explicit `start()`
+					// will attempt a fresh spawn, and tell the user the
+					// LSP went down.
+					L.warn('sis_headless -lsp transitioned to Stopped after running');
 					this.currentClient = undefined;
 					this.client = undefined;
 					this.startedFor = undefined;
 					this.setStatus({ kind: 'failed', reason: 'LSP server stopped' });
 					this.notifyOnce(
 						'unexpected-stop',
-						'SiS Lua diagnostics stopped: the LSP server died or never finished initializing. Open the SiS Lua LSP output channel for protocol details.',
+						'SiS Lua diagnostics stopped: the LSP server died after running. Open the SiS Lua LSP output channel for protocol details.',
 					);
 					break;
 			}

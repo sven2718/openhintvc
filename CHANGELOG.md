@@ -3,6 +3,9 @@ All notable changes to the "openhintvc" extension will be documented in this fil
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.2.2] - 2026-05-12
+- Lua diagnostics: don't toast "LSP server stopped" for transient deaths during the initial startup handshake. The languageclient already retries automatically (5 attempts in 3 minutes); we only treat Stopped as a real failure after the server has reached Running at least once. Persistent failures still surface via the 15s `client.start()` watchdog.
+
 ## [0.2.1] - 2026-05-12
 - Lua diagnostics: state transitions during `client.start()` are no longer dropped (status bar now reflects mid-startup activity).
 - Lua diagnostics: 15s watchdog on `client.start()` surfaces a stuck initialize handshake as a visible failure instead of an indefinitely-spinning status bar.
