@@ -3,8 +3,10 @@ All notable changes to the "openhintvc" extension will be documented in this fil
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [Unreleased]
-
+## [0.2.0] - 2026-05-12
+- Lua diagnostics: status-bar item ("SiS Lua") now reflects LSP lifecycle (starting / running / unavailable / failed). Click to open the new "SiS Dev" output channel.
+- Lua diagnostics: one-shot warning notification when start fails for an actionable reason (no `sis_headless` found, staging refused, init handshake rejected). Previously these failed silently and the channel was never created.
+- More robust language server setup.
 
 ## [0.1.9] - 2026-05-05
 - OpenHint server: changed default port from 62696 to 52698 (the old default fell inside a Windows/Hyper-V excluded port range, causing `EACCES` listen failures).

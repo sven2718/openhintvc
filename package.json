@@ -2,7 +2,7 @@
     "name": "openhintvc",
     "displayName": "Stars in Shadow Dev",
     "description": "Stars in Shadow dev tools (Lua debugger + OpenHint server)",
-    "version": "0.1.9",
+    "version": "0.2.0",
     "publisher": "sven2718",
     "icon": "images/icon.png",
     "license": "MIT",
@@ -284,7 +284,6 @@
     "dependencies": {
         "@vscode/debugadapter": "^1.68.0",
         "@vscode/debugprotocol": "^1.68.0",
-        "log4js": "^6.9.1",
         "vscode-languageclient": "^8.1.0"
     }
 }
