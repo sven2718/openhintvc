@@ -5,6 +5,17 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+
+## [0.1.9] - 2026-05-05
+- OpenHint server: changed default port from 62696 to 52698 (the old default fell inside a Windows/Hyper-V excluded port range, causing `EACCES` listen failures).
+- OpenHint server: error messages now show the actual error code and cap retries at 3 attempts instead of looping forever. After exhausting retries, a final message explains the likely cause and how to retry manually.
+
+## [0.1.8] - 2026-05-05
+- Do nothing when visual studio code is not editing a SiS workspaces.
+
+## [0.1.7] - 2026-04-24
+- Rewiring the language server protocol.
+
 ## [0.1.6] - 2026-02-26
 - Debugger: enable `evaluate` for hover tooltips (avoids stale values from the Variables view during stepping).
 

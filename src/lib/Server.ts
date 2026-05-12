@@ -8,6 +8,8 @@ const L = Logger.getLogger('Server');
 
 const DEFAULT_PORT = 52698;
 const DEFAULT_HOST = '127.0.0.1';
+const MAX_CONSECUTIVE_RETRIES = 3;
+const RETRY_DELAY_MS = 10000;
 
 class Server extends EventEmitter {
   online : boolean = false;
@@ -16,6 +18,9 @@ class Server extends EventEmitter {
   host : string;
   dontShowPortAlreadyInUseError : boolean = false;
   defaultSession : Session;
+  // Counts consecutive listen failures. Reset to 0 on success so a
+  // transient hiccup doesn't accumulate toward a permanent give-up.
+  private consecutiveFailures = 0;
 
   constructor() {
     super();
@@ -24,6 +29,11 @@ class Server extends EventEmitter {
 
   start(quiet : boolean) {
     L.trace('start', quiet);
+
+    if (!quiet) {
+      // Manual restart: give the retry budget a fresh start.
+      this.consecutiveFailures = 0;
+    }
 
     if (this.isOnline()) {
       this.stop();
@@ -88,12 +98,14 @@ class Server extends EventEmitter {
 
   onServerListening(e) {
     L.trace('onServerListening');
+    this.consecutiveFailures = 0;
     this.setOnline(true);
     this.emit('ready');
   }
 
   onServerError(e) {
     L.trace('onServerError', e);
+    L.warn(`Server error on ${this.getHost()}:${this.getPort()}: ${e.code || 'unknown'} - ${e.message || e}`);
 
     this.emit('error', e);
 
@@ -102,15 +114,27 @@ class Server extends EventEmitter {
         return;
       } else {
         // Prefer the configured port if error doesn't provide one
-        return vscode.window.showErrorMessage(`Failed to start server, port ${this.getPort()} already in use`);
+        return vscode.window.showErrorMessage(`Failed to start OpenHint server: port ${this.getPort()} is already in use.`);
       }
     }
 
-    vscode.window.showErrorMessage(`Failed to start server, will try again in 10 seconds`);
+    this.consecutiveFailures++;
+    if (this.consecutiveFailures > MAX_CONSECUTIVE_RETRIES) {
+      vscode.window.showErrorMessage(
+        `OpenHint server failed to start after ${MAX_CONSECUTIVE_RETRIES} retries (last error: ${e.code || 'unknown'}). ` +
+        `Check that port ${this.getPort()} is not blocked by Windows excluded port ranges or a firewall. ` +
+        `Use "SiS Dev: Start OpenHint Server" to retry manually.`
+      );
+      return;
+    }
+
+    vscode.window.showErrorMessage(
+      `Failed to start OpenHint server (${e.code || 'unknown'}), will try again in ${RETRY_DELAY_MS / 1000}s (attempt ${this.consecutiveFailures}/${MAX_CONSECUTIVE_RETRIES}).`
+    );
 
     setTimeout(() => {
       this.start(true);
-    }, 10000);
+    }, RETRY_DELAY_MS);
   }
 
   onServerClose() {

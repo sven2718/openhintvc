@@ -2,7 +2,7 @@
     "name": "openhintvc",
     "displayName": "Stars in Shadow Dev",
     "description": "Stars in Shadow dev tools (Lua debugger + OpenHint server)",
-    "version": "0.1.6",
+    "version": "0.1.9",
     "publisher": "sven2718",
     "icon": "images/icon.png",
     "license": "MIT",
@@ -30,7 +30,7 @@
             "properties": {
                 "remote.port": {
                     "type": "number",
-                    "default": 62696,
+                    "default": 52698,
                     "description": "Port number to use for connection."
                 },
                 "remote.onstartup": {
@@ -60,12 +60,12 @@
                 "sisDev.luaSyntaxDiagnostics.enabled": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Enable SiS Lua syntax diagnostics using a background `sis_headless` process (dialect-aware). On startup, the extension snapshots the executable into a temp directory to avoid locking the build output."
+                    "description": "Enable SiS Lua diagnostics via the canonical `sis_headless -lsp` server (dialect-aware). The server snapshots itself on Windows so rebuilds do not fight a long-lived LSP session for the exe lock. Changes take effect without a reload."
                 },
                 "sisDev.luaSyntaxDiagnostics.sisHeadlessPath": {
                     "type": "string",
                     "default": "",
-                    "description": "Path to `sis_headless` executable used for syntax diagnostics. Leave blank to auto-detect from the workspace. Note: resolved and snapshotted on extension startup; reload the VS Code window to pick up a new build."
+                    "description": "Path to `sis_headless` used for SiS Lua diagnostics. Leave blank to auto-detect from the workspace. Changes take effect without a reload (the LSP restarts automatically)."
                 }
             }
         },
@@ -284,6 +284,7 @@
     "dependencies": {
         "@vscode/debugadapter": "^1.68.0",
         "@vscode/debugprotocol": "^1.68.0",
-        "log4js": "^6.9.1"
+        "log4js": "^6.9.1",
+        "vscode-languageclient": "^8.1.0"
     }
 }
