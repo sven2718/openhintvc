@@ -2,12 +2,12 @@
 
 This extension is your one-stop shop for Stars in Shadow development utilities!  It includes:
 
-- Lua debugger: An evolution of devcat's excellent [lua debugger](https://github.com/devcat-studio/VSCodeLuaDebug), tweaked to work better with SiS's quirky runtime enviornement.
+- Lua debugger: An evolution of devcat's excellent [lua debugger](https://github.com/devcat-studio/VSCodeLuaDebug), tweaked to work better with SiS's quirky runtime environment.
 - OpenHint server:  A tiny integrated server that allows your running copy of Stars in Shadow to open files in VS Code.
 - Lua go-to-definition: A lightweight `Ctrl+Click` / `F12` implementation for SiS Lua that understands common dialect patterns (locals/params even when used as the base of a member chain like `ship.empire`, module `_ENV`, `create_file_env`, `ensure_property_env`), plus workspace search heuristics and (when paused in the debugger) runtime `debug.getinfo` to jump to the exact definition line.
   - When the SiS Lua LSP is available, local-scope analysis can ask `sis_headless -lsp` for dialect-accurate tokens via a `sis/tokenize` request; otherwise it falls back to a lightweight TypeScript tokenizer.
 - Lua formatter: Minimal SiS-safe Lua formatting (default: whitespace normalization; optional: simple re-indent).
-- Lua syntax diagnostics: the extension speaks LSP to the canonical `sis_headless -lsp` server (see `docs/tags.md` topic `sis_lua_lsp`) and surfaces real SiS Lua parser errors as editor diagnostics.
+- Lua syntax diagnostics: the extension speaks LSP to the canonical `sis_headless -lsp` server and surfaces real SiS Lua parser errors as editor diagnostics.
 
 ## Debugging (Lua / SiS)
 
@@ -50,11 +50,18 @@ This extension runs the canonical SiS Lua language server (`sis_headless -lsp`) 
 
 - Enable/disable: `sisDev.luaSyntaxDiagnostics.enabled` (changes take effect without a window reload).
 - Override executable path (optional): `sisDev.luaSyntaxDiagnostics.sisHeadlessPath` (the LSP restarts automatically on change).
-- `sis_headless -lsp` snapshots its own binary into a temp directory on Windows so you can rebuild the original without file-lock contention. Reload the VS Code window to pick up a new build.
+- `sis_headless -lsp` snapshots its own binary into a temp directory on Windows
+  so you can change the original exe without file-lock contention. Reload the VS
+  Code window to pick up a new build.
 
 ## Code Provenance
 
-The debuggee protocol started as a fork of devCAT's [VSCodeLuaDebug](https://github.com/devcat-studio/VSCodeLuaDebug); but I've been tweaking it as I see fit.  Props to both Seungjae Lee (@devcat) his integration work, and Dan Tull (@adobe) for his awesome `OP_HAULT` patch.  For a deeper dive into what's going on here, see this old [lua-l thread](http://lua-users.org/lists/lua-l/2018-05/msg00115.html).
+The debuggee protocol started as a fork of devCAT's
+[VSCodeLuaDebug](https://github.com/devcat-studio/VSCodeLuaDebug); but I've been
+tweaking it as I see fit.  Props to both Seungjae Lee (@devcat) for his
+integration work, and Dan Tull (@adobe) for his awesome `OP_HAULT` patch.  For a
+deeper dive into what's going on here, see this old [lua-l
+thread](http://lua-users.org/lists/lua-l/2018-05/msg00115.html).
 
 ## OpenHint
 
