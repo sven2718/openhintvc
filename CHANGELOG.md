@@ -3,6 +3,9 @@ All notable changes to the "openhintvc" extension will be documented in this fil
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.3.0] - 2026-06-15
+- Cg shader syntax highlighting: `.cg` files now get proper syntax coloring for Cg types, intrinsics, semantics, and the full C preprocessor surface (`#define`, `#ifdef`/`#ifndef`/`#if`/`#elif`/`#else`/`#endif`, `#include`, `#undef`, `##` token-pasting, backslash line continuation).
+
 ## [0.2.2] - 2026-05-12
 - Lua diagnostics: don't toast "LSP server stopped" for transient deaths during the initial startup handshake. The languageclient already retries automatically (5 attempts in 3 minutes); we only treat Stopped as a real failure after the server has reached Running at least once. Persistent failures still surface via the 15s `client.start()` watchdog.
 

@@ -8,6 +8,7 @@ This extension is your one-stop shop for Stars in Shadow development utilities! 
   - When the SiS Lua LSP is available, local-scope analysis can ask `sis_headless -lsp` for dialect-accurate tokens via a `sis/tokenize` request; otherwise it falls back to a lightweight TypeScript tokenizer.
 - Lua formatter: Minimal SiS-safe Lua formatting (default: whitespace normalization; optional: simple re-indent).
 - Lua syntax diagnostics: the extension speaks LSP to the canonical `sis_headless -lsp` server and surfaces real SiS Lua parser errors as editor diagnostics.
+- Cg shader syntax highlighting: grammar for `.cg` files with full preprocessor support (`#define`, `#ifdef`, `##` token-pasting, etc.).
 
 ## Debugging (Lua / SiS)
 
@@ -53,6 +54,12 @@ This extension runs the canonical SiS Lua language server (`sis_headless -lsp`) 
 - `sis_headless -lsp` snapshots its own binary into a temp directory on Windows
   so you can change the original exe without file-lock contention. Reload the VS
   Code window to pick up a new build.
+
+## Cg shader syntax highlighting
+
+The extension contributes a TextMate grammar for `.cg` shader files, providing syntax coloring for Cg types (scalar, vector, matrix, sampler), intrinsics (`tex2D`, `lerp`, `mul`, etc.), semantic bindings (`: TEXCOORD0`, `: COLOR`), and the full C preprocessor surface that the NVIDIA Cg compiler exposes. This includes `#define` with macro parameters and `##` token-pasting, `#ifdef`/`#ifndef`/`#if`/`#elif`/`#else`/`#endif` conditional compilation, `#include` with path strings, `#undef`, and backslash line continuation.
+
+The grammar is bundled in the extension rather than relying on third-party marketplace packages, so it works out of the box without additional dependencies.
 
 ## Code Provenance
 
