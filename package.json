@@ -1,8 +1,8 @@
 {
     "name": "openhintvc",
     "displayName": "Stars in Shadow Dev",
-    "description": "Stars in Shadow dev tools (Lua debugger + OpenHint server)",
-    "version": "0.2.2",
+    "description": "Stars in Shadow dev tools (Lua debugger, OpenHint server, Cg shader highlighting)",
+    "version": "0.3.0",
     "publisher": "sven2718",
     "icon": "images/icon.png",
     "license": "MIT",
@@ -79,9 +79,32 @@
                 "title": "SiS Dev: Stop OpenHint Server"
             }
         ],
+        "languages": [
+            {
+                "id": "cg",
+                "aliases": [
+                    "Cg",
+                    "C for Graphics"
+                ],
+                "extensions": [
+                    ".cg"
+                ],
+                "configuration": "./cg.configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "cg",
+                "scopeName": "source.cg",
+                "path": "./syntaxes/cg.tmLanguage.json"
+            }
+        ],
         "breakpoints": [
             {
                 "language": "lua"
+            },
+            {
+                "language": "cg"
             }
         ],
         "debuggers": [
