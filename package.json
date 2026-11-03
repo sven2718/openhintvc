@@ -2,12 +2,12 @@
     "name": "openhintvc",
     "displayName": "Stars in Shadow Dev",
     "description": "Stars in Shadow dev tools (Lua debugger, OpenHint server, Cg shader highlighting)",
-    "version": "0.3.0",
+    "version": "0.3.4",
     "publisher": "sven2718",
     "icon": "images/icon.png",
     "license": "MIT",
     "engines": {
-        "vscode": "^1.74.0"
+        "vscode": "^1.144.0"
     },
     "categories": [
         "Debuggers",
@@ -126,7 +126,7 @@
                         "arguments": "-vscode -console -debugbridge",
                         "console": "integratedTerminal",
                         "listenPublicly": false,
-                        "listenPort": 46692,
+                        "listenPort": 40466,
                         "encoding": "UTF-8",
                         "env": {}
                     },
@@ -142,7 +142,7 @@
                         "arguments": "-noupdate -fullscreen_border -vscode",
                         "console": "externalTerminal",
                         "listenPublicly": false,
-                        "listenPort": 46692,
+                        "listenPort": 40466,
                         "encoding": "UTF-8",
                         "env": {}
                     },
@@ -153,7 +153,7 @@
                         "workingDirectory": "${workspaceFolder}/resources/",
                         "sourceBasePath": "${workspaceFolder}",
                         "listenPublicly": false,
-                        "listenPort": 46692,
+                        "listenPort": 40466,
                         "encoding": "UTF-8"
                     },
                     {
@@ -296,17 +296,20 @@
     },
     "devDependencies": {
         "@types/mocha": "^10.0.1",
-        "@types/node": "^20.11.30",
-        "@types/vscode": "^1.74.0",
+        "@types/node": "^26.6.6",
+        "@types/vscode": "^1.144.0",
         "@typescript-eslint/eslint-plugin": "^8.11.0",
         "@typescript-eslint/parser": "^8.11.0",
-        "eslint": "^9.13.0",
-        "typescript": "^5.6.3",
+        "eslint": "^10.14.0",
+        "typescript": "^6.0.3",
         "typescript-eslint": "^8.11.0"
     },
     "dependencies": {
         "@vscode/debugadapter": "^1.68.0",
         "@vscode/debugprotocol": "^1.68.0",
-        "vscode-languageclient": "^8.1.0"
+        "vscode-languageclient": "^11.0.0"
+    },
+    "overrides": {
+        "minimatch": "^11.0.1"
     }
 }
