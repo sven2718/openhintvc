@@ -20,7 +20,7 @@ Typical configs use:
     -  `-vscode` (enables the SiS Lua debugger)
     - `-console` (echo game engine outputs to a seperate term)
     -  `-debugbridge` (emulate msvc debug string handling).
-- `listenPort`: SiS defaults to `46692` -- you probably want to keep that default.
+- `listenPort`: SiS defaults to `40466` -- you probably want to keep that default.
 
 ## Stopping / restarting (Windows)
 

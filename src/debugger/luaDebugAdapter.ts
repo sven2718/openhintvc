@@ -482,7 +482,7 @@ class SisLuaDebugAdapterSession extends DebugSession {
 				}
 
 				this.killLaunchedProcesses();
-				this.closeListener();
+				void this.closeListener();
 				this.closeDebuggee();
 				this.shutdown();
 			}, 250);
@@ -497,7 +497,7 @@ class SisLuaDebugAdapterSession extends DebugSession {
 
 		setImmediate(() => {
 			this.killLaunchedProcesses();
-			this.closeListener();
+			void this.closeListener();
 			this.closeDebuggee();
 			this.shutdown();
 		});
@@ -509,14 +509,18 @@ class SisLuaDebugAdapterSession extends DebugSession {
 		this.debuggee = undefined;
 	}
 
-	private closeListener(): void {
-		if (!this.listener) return;
-		try {
-			this.listener.close();
-		} catch {
-			// ignore
-		}
+	private closeListener(): Promise<void> {
+		const listener = this.listener;
+		if (!listener) return Promise.resolve();
 		this.listener = undefined;
+
+		return new Promise((resolve) => {
+			try {
+				listener.close(() => resolve());
+			} catch {
+				resolve();
+			}
+		});
 	}
 
 	private async startDebuggingSession(
@@ -530,8 +534,8 @@ class SisLuaDebugAdapterSession extends DebugSession {
 		this.activeKind = kind;
 		try {
 			this.killLaunchedProcesses();
-			this.closeListener();
 			this.closeDebuggee();
+			await this.closeListener();
 
 			if (!this.readBasicConfiguration(args)) {
 				this.sendErrorResponse(response, 3000, 'Invalid configuration');
@@ -560,7 +564,7 @@ class SisLuaDebugAdapterSession extends DebugSession {
 					return;
 				}
 				if (!ok) {
-					this.closeListener();
+					void this.closeListener();
 					return;
 				}
 			}
@@ -575,7 +579,7 @@ class SisLuaDebugAdapterSession extends DebugSession {
 			this.sendErrorResponse(response, 3001, 'Failed to start debug session: {reason}', {
 				reason: e instanceof Error ? e.message : String(e),
 			});
-			this.closeListener();
+			void this.closeListener();
 			this.closeDebuggee();
 		}
 	}
@@ -738,7 +742,7 @@ class SisLuaDebugAdapterSession extends DebugSession {
 		}
 
 		socket.setNoDelay(true);
-		this.closeListener();
+		void this.closeListener();
 
 		this.debuggee = new DebuggeeConnection(
 			socket,
