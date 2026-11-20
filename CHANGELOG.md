@@ -3,6 +3,9 @@ All notable changes to the "openhintvc" extension will be documented in this fil
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.3.5] - 2026-11-19
+- Debugger: changed the default SiS port from 46692 to 40466.
+
 ## [0.3.0] - 2026-06-15
 - Cg shader syntax highlighting: `.cg` files now get proper syntax coloring for Cg types, intrinsics, semantics, and the full C preprocessor surface (`#define`, `#ifdef`/`#ifndef`/`#if`/`#elif`/`#else`/`#endif`, `#include`, `#undef`, `##` token-pasting, backslash line continuation).
 
